@@ -4,10 +4,10 @@ import icons from '../../../config/Icons.js'
 const palette = tm.utils.palette
 
 export default {
-  height: 14.5,
+  height: 9.5,
   width: cfg.width,
   margin: cfg.margin,
-  rows: 3,
+  rows: 2,
   columns: 4,
   order: ['VisitCounter', 'PlayerCounter', 'VersionButton', 'TimeButton', 'MapsButton', 'StatsButton', 'SectorsButton',
     'CommandListButton', 'VoteSkip', 'VoteReplay', 'PaySkip', 'PayReplay'],

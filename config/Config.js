@@ -5,13 +5,13 @@ export default {
    */
   manualChatRoutingEnabled: true,
   /** Local records limit for rank calculation and plugins */
-  localRecordsLimit: 30,
+  localRecordsLimit: 10,
   /** Amount of chat messages stored in runtime memory */
   chatMessagesInRuntime: 300,
   /** Amount of maps in the controller map queue */
-  jukeboxQueueSize: 30,
+  jukeboxQueueSize: 200,
   /** Amount of maps kept in the map history */
-  jukeboxHistorySize: 30,
+  jukeboxHistorySize: 200,
   /** Whether to keep the jukeboxed maps in the queue after the requester leaves */
   keepQueueAfterLeave: true,
   /** Whether to enable the /add functionality for all players */
@@ -19,7 +19,7 @@ export default {
   /** Whether to start a vote to add maps with /add */
   voteOnPublicAdd: true,
   /** Default amount of maps fetched from the TMX search API */
-  defaultTMXSearchLimit: 50,
+  defaultTMXSearchLimit: 200,
   /** Whether to reset Cup mode scores after a map is skipped or restarted */
   resetCupScoreOnSkipAndRestart: true,
   /** Timeout after clicking manialink in milliseconds */
@@ -74,7 +74,7 @@ export default {
   /** Point system for rounds and cup gamemodes */
   roundsModePointSystem: [33, 29, 27, 25, 23, 21, 19, 17, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
   /** Default time limit in TimeAttack mode (in milliseconds) */
-  defaultTimeAttackTimeLimit: 300000,
+  defaultTimeAttackTimeLimit: 36000000,
   /** Minimal time value to which the dynamic timer can be set (in milliseconds) */
   dynamicTimerSubtractionLimit: 30000,
   /** CallVotes are skip/restart votes that can be done through the ingame UI (ESC>Advanced Options), setting it to -1 disables CallVotes entirely */

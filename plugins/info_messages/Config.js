@@ -1,7 +1,7 @@
 const p = tm.utils.palette
 
 export default {
-  isEnabled: true, // All the info messages will be prefixed with this text
+  isEnabled: false, // All the info messages will be prefixed with this text
   messagePrefix: `${p.record}[${p.highlight}INFO${p.record}]`, // Default formatting for the info messages
   // That is put inbetween the prefix and the message
   defaultFormatting: `$z$s `, // Controls whether the default chat prefix is shown

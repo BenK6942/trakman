@@ -2,21 +2,21 @@ import cfg from '../../config/RaceUi.js'
 import icons from '../../config/Icons.js'
 
 export default {
-  entries: 15,
+  entries: 10,
   teamsEntries: 15,
   roundsEntries: 7,
   cupEntries: 7,
   lapsEntries: 7,
   entryHeight: 2.15,
   width: cfg.width,
-  title: 'Dedi Records',
+  title: 'Dedimania',
   icon: icons.chartDedi,
   margin: cfg.margin,
-  topCount: 5,
+  topCount: 10,
   teamsTopCount: 5,
   roundsTopCount: 3,
   cupTopCount: 3,
   lapsTopCount: 3,
-  displayNoRecordEntry: true,
+  displayNoRecordEntry: false,
   hidePanel: true
 }

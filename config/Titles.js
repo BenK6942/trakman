@@ -15,6 +15,6 @@ export const titles = {
     1: 'Operator',
     2: 'Admin',
     3: 'Masteradmin',
-    4: 'Server Owner'
+    4: 'Masteradmin'
   }
 }

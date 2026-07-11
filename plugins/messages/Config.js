@@ -5,31 +5,31 @@ export default {
   specialWin: 50,
   startup: {
     message: `${p.highlight}$L[${tm.config.controller.repo}]Trakman v#{version}$L${p.servermsg} startup sequence successful.`,
-    public: true
+    public: false
   },
   changelog: {
     message: `${p.error}You can see the recent changes with the ${p.highlight}/changes ${p.error}command.`,
-    public: true
+    public: false
   },
   noPb: {
     message: `${p.error}You don't have a personal best on this map.`,
-    public: true
+    public: false
   },
   pb: {
     message: `${p.record}Personal best${p.highlight}: #{time}${p.record}, the ${p.rank}#{rank} ${p.record}record.`,
-    public: true
+    public: false
   },
   noRank: {
     message: `${p.error}You don't have a rank on the server yet.`,
-    public: true
+    public: false
   },
   rank: {
     message: `${p.record}You are currently ranked ${p.rank}#{rank} ${p.record}out of ${p.highlight}#{total}${p.record} people total.`,
-    public: true
+    public: false
   },
   welcome: {
     message: `${p.error}Welcome to ${p.highlight}#{name}${p.error}. This server is running ${p.highlight}$L[${tm.config.controller.repo}]Trakman v#{version}$L${p.error}.`,
-    public: true
+    public: false
   },
   join: {
     message: `${p.servermsg}#{title}${p.highlight}: #{nickname}${p.servermsg} Country${p.highlight}: #{country} ${p.servermsg}Visits${p.highlight}: #{visits}${p.servermsg}.`,
@@ -37,11 +37,11 @@ export default {
   },
   win: {
     message: `${p.record}You have won your ${p.rank}#{wins}${p.record} race.`,
-    public: true
+    public: false
   },
   winPublic: {
     message: `${p.record}Congratulations to ${p.highlight}#{nickname} ${p.record}for winning their ${p.rank}#{wins} ${p.record}race.`,
-    public: true
+    public: false
   },
   leave: {
     message: `${p.highlight}#{nickname}${p.servermsg} has quit after ${p.highlight}#{time}${p.servermsg}.`,

@@ -16,7 +16,7 @@ let splitTimeMinus321go: number = 0
 let isMapActive: boolean = false
 let playerSpecStatus: boolean = true
 
-if (config.isEnabled) {
+if (config.isEnabled) { 
 		tm.addListener('TrackMania.PlayerInfoChanged', (PlayerInfo) => { 
 			Logger.info(`spectator status: ${PlayerInfo.SpectatorStatus}`)
 			if (PlayerInfo.SpectatorStatus == 0) {
@@ -24,6 +24,7 @@ if (config.isEnabled) {
 			}
 			if (PlayerInfo.SpectatorStatus !== 0) {
 				playerSpecStatus = true
+				isMapActive = false
 			}
 		})
 			
@@ -53,4 +54,5 @@ if (config.isEnabled) {
 				isMapActive = false
 			}
 	})
+	
 }

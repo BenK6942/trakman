@@ -20,7 +20,7 @@ export default class LiveSplitsWidget extends StaticComponent {
 	this.renderOnEvent('PlayerFinish', (info: tm.FinishInfo) => { 
 		setTimeout(async () => {
 			await this.initializeFromDatabase(info.login)
-		}, 50)
+		}, 1000)
 	})
 
     this.renderOnEvent('PlayerJoin', (info: tm.JoinInfo) => {

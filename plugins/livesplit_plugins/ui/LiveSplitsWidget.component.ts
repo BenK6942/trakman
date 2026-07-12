@@ -5,7 +5,10 @@ import { Logger } from '../../../src/Logger.js'
 
 export default class LiveSplitsWidget extends StaticComponent {
   private readonly header: StaticHeader
-  private readonly liveSessionCache: Map<string, { mapId: string; time: string }> = new Map()
+  // Updated cache definition to track the raw numerical milliseconds
+  private readonly liveSessionCache: Map<string, { mapId: string; time: string; rawTime?: number }> = new Map()
+  //totalRunTimeCache 
+  private readonly totalRunTimeCache: Map<string, string> = new Map()
   // Maintain a persistent layout array that never drops or alters indexes during the match
   private frozenPlaylist: tm.Map[] = []
   // Tracks exactly which track index slot in the list is currently being played
@@ -17,11 +20,11 @@ export default class LiveSplitsWidget extends StaticComponent {
     super((componentIds as any).liveSplits ?? 123456)
     this.header = new StaticHeader('race')
  
-	this.renderOnEvent('PlayerFinish', (info: tm.FinishInfo) => { 
-		setTimeout(async () => {
-			await this.initializeFromDatabase(info.login)
-		}, 1000)
-	})
+    this.renderOnEvent('PlayerFinish', (info: tm.FinishInfo) => { 
+      setTimeout(async () => {
+        await this.initializeFromDatabase(info.login)
+      }, 1000)
+    })
 
     this.renderOnEvent('PlayerJoin', (info: tm.JoinInfo) => {
       this.initializeFromDatabase(info.login)
@@ -42,8 +45,9 @@ export default class LiveSplitsWidget extends StaticComponent {
     })
   }
 
+  // Expanded height of the widget container to perfectly accommodate the extra total row
   getHeight(): number {
-    return config.entryHeight * config.entries + StaticHeader.raceHeight + config.margin
+    return config.entryHeight * (config.entries + 1) + StaticHeader.raceHeight + config.margin
   }
 
   /**
@@ -80,30 +84,36 @@ export default class LiveSplitsWidget extends StaticComponent {
     }
   }
 
-  /**
-   * Hydrates memory cache securely using internal map IDs from the schema database.
-   */
-  private async initializeFromDatabase(login: string): Promise<void> {
-    const playerObj = tm.players.get(login)
-    if (playerObj === undefined) { return }
+/**
+ * Hydrates memory cache securely using internal map IDs and calculates total run time.
+ */
+private async initializeFromDatabase(login: string): Promise<void> {
+  const playerObj = tm.players.get(login)
+  if (playerObj === undefined) { return }
 
-    const query = `
-      SELECT l.map_uid, l.finish_time 
-      FROM livesplits l 
-      INNER JOIN maps m ON m.id = l.map_id 
-      WHERE l.player_login = $1;
-    `
-    const result = await tm.db.query(query, login)
-	// --- DEBUG LOG START ---
-    if (result instanceof Error) {
-      console.error(`[LiveSplitsWidget] Database Error for ${login}:`, result.message)
-      return
-    } else {
-      console.log(`[LiveSplitsWidget] SQL Result for ${login}:`, JSON.stringify(result, null, 2))
-    }
-    // --- DEBUG LOG END ---
-	
-    for (const row of result) {
+  // Query 1: Fetch individual map splits
+  const splitQuery = `
+    SELECT l.map_uid, l.finish_time 
+    FROM livesplits l 
+    INNER JOIN maps m ON m.id = l.map_id 
+    WHERE l.player_login = $1;
+  `
+  // Query 2: Let the database handle the sum optimization natively
+  const totalQuery = `
+    SELECT SUM(COALESCE(l.finish_time,0)) as total_time
+    FROM livesplits l
+    INNER JOIN maps m ON m.id = l.map_id
+    WHERE l.player_login = $1;
+  `
+
+  const [splitResult, totalResult] = await Promise.all([
+    tm.db.query(splitQuery, login),
+    tm.db.query(totalQuery, login)
+  ])
+
+  // Process Split Data
+  if (!(splitResult instanceof Error)) {
+    for (const row of splitResult) {
       if (row.map_uid) {
         this.liveSessionCache.set(`${login}_${row.map_uid}`, {
           mapId: String(row.map_uid),
@@ -111,8 +121,18 @@ export default class LiveSplitsWidget extends StaticComponent {
         })
       }
     }
-    this.displayToPlayer(login)
   }
+
+  // Process Total Runtime Query
+  if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
+    const totalMs = Number(totalResult[0].total_time)
+    this.totalRunTimeCache.set(login, tm.utils.getTimeString(totalMs))
+  } else {
+    this.totalRunTimeCache.set(login, '-')
+  }
+
+  this.displayToPlayer(login)
+}
 
   display() {
     if (!this.isDisplayed) { return }
@@ -176,9 +196,21 @@ export default class LiveSplitsWidget extends StaticComponent {
       }
     }
 
-    const dynamicListHeight = config.entryHeight * renderCount
+	const dynamicListHeight = config.entryHeight * renderCount
     const listUi = new List(renderCount, config.width, dynamicListHeight, config.columnProportions)
     const content = listUi.constructXml(mapNames, finishTimes)
+
+    // Pull the computed DB aggregate value out directly
+    const cachedTotal = this.totalRunTimeCache.get(login) ?? '-'
+    const hasAnyFinishes = cachedTotal !== '-'
+
+    // Render a single-row List helper that matches layout structure
+    const totalRunTimeHeight = config.entryHeight
+    const totalListUi = new List(1, config.width, totalRunTimeHeight, config.columnProportions)
+    const totalContent = totalListUi.constructXml(
+      ['$BBBTotal run time'],
+      [hasAnyFinishes ? `$0F0${cachedTotal}` : '$888-']
+    )
   
     const xml = `<manialink id="${this.id}">
     <frame posn="${this.positionX} ${this.positionY} 1">
@@ -187,6 +219,10 @@ export default class LiveSplitsWidget extends StaticComponent {
         <frame posn="0 -${this.header.options.height + config.margin} 1">
         <quad bgcolor="0006"/>
           ${content}
+          <!-- Places the total time directly below the dynamic split entries -->
+          <frame posn="0 -${dynamicListHeight} 1">
+            ${totalContent}
+          </frame>
         </frame>
       </frame>
     </manialink>`

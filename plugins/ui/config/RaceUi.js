@@ -20,9 +20,10 @@ export default {
     // 3.5, <- example margin
     "TMXRanking",
     "TimerWidget",
-    "LocalRanking",
-    "LiveRanking",
-    "DonationPanel"
+    "LiveSplitsWidget"
+//    "LocalRanking",
+//    "LiveRanking",
+//    "DonationPanel"
   ],
   leftSideOrder: [
     "ButtonsWidget",

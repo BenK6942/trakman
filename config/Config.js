@@ -9,9 +9,9 @@ export default {
   /** Amount of chat messages stored in runtime memory */
   chatMessagesInRuntime: 300,
   /** Amount of maps in the controller map queue */
-  jukeboxQueueSize: 30,
+  jukeboxQueueSize: 1000,
   /** Amount of maps kept in the map history */
-  jukeboxHistorySize: 30,
+  jukeboxHistorySize: 1000,
   /** Whether to keep the jukeboxed maps in the queue after the requester leaves */
   keepQueueAfterLeave: true,
   /** Whether to enable the /add functionality for all players */

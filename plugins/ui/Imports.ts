@@ -41,6 +41,7 @@ import RoundsPointsRanking from './static_components/race/RoundsPointsRanking.co
 import LapRanking from './static_components/race/LapRanking.component.js'
 import BannerWidget from './static_components/result/BannerWidget.component.js'
 import UltiRanking from './static_components/race/UltiRanking.component.js'
+import LiveSplitsWidget from '../livesplit_plugins/ui/LiveSplitsWidget.component.js'
 
 /*
 ------------------
@@ -129,4 +130,5 @@ tm.addListener(`Startup`, (): void => {
   new Adminlist()
   new Masteradminlist()
   new UltiRanking()
+  new LiveSplitsWidget()
 }, true)

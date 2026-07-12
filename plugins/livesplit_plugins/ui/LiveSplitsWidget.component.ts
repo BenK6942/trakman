@@ -216,8 +216,8 @@ private async initializeFromDatabase(login: string): Promise<void> {
     <frame posn="${this.positionX} ${this.positionY} 1">
       <format textsize="1" textcolor="FFFF"/> 
         ${this.header.constructXml(config.title, config.icon, this.side)}
+		<quad posn="0 -${this.header.options.height + config.margin} 1" sizen="14.675 13" bgcolor="0006"/>
         <frame posn="0 -${this.header.options.height + config.margin} 1">
-        <quad bgcolor="0006"/>
           ${content}
           <!-- Places the total time directly below the dynamic split entries -->
           <frame posn="0 -${dynamicListHeight} 1">

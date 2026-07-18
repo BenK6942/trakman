@@ -9,27 +9,27 @@ export default {
   },
   changelog: {
     message: `${p.error}You can see the recent changes with the ${p.highlight}/changes ${p.error}command.`,
-    public: true
+    public: false
   },
   noPb: {
     message: `${p.error}You don't have a personal best on this map.`,
-    public: true
+    public: false
   },
   pb: {
     message: `${p.record}Personal best${p.highlight}: #{time}${p.record}, the ${p.rank}#{rank} ${p.record}record.`,
-    public: true
+    public: false
   },
   noRank: {
     message: `${p.error}You don't have a rank on the server yet.`,
-    public: true
+    public: false
   },
   rank: {
     message: `${p.record}You are currently ranked ${p.rank}#{rank} ${p.record}out of ${p.highlight}#{total}${p.record} people total.`,
-    public: true
+    public: false
   },
   welcome: {
     message: `${p.error}Welcome to ${p.highlight}#{name}${p.error}. This server is running ${p.highlight}$L[${tm.config.controller.repo}]Trakman v#{version}$L${p.error}.`,
-    public: true
+    public: false
   },
   join: {
     message: `${p.servermsg}#{title}${p.highlight}: #{nickname}${p.servermsg} Country${p.highlight}: #{country} ${p.servermsg}Visits${p.highlight}: #{visits}${p.servermsg}.`,
@@ -37,23 +37,23 @@ export default {
   },
   win: {
     message: `${p.record}You have won your ${p.rank}#{wins}${p.record} race.`,
-    public: true
+    public: false
   },
   winPublic: {
     message: `${p.record}Congratulations to ${p.highlight}#{nickname} ${p.record}for winning their ${p.rank}#{wins} ${p.record}race.`,
-    public: true
+    public: false
   },
   leave: {
     message: `${p.highlight}#{nickname}${p.servermsg} has quit after ${p.highlight}#{time}${p.servermsg}.`,
-    public: true
+    public: false
   },
   record: {
     message: `${p.highlight}#{nickname}${p.record} has #{status} the ${p.rank}#{position}${p.record} local record. #{type}${p.highlight}: #{time}#{difference}`,
-    public: true
+    public: false
   },
   lapRecord: {
     message: `${p.highlight}#{nickname}${p.message} has #{status} the ${p.rank}#{position}${p.message} lap record. Time${p.highlight}: #{time}#{difference}`,
-    public: true
+    public: false
   },
   recordDifference: {
     message: ` $n${p.record}(${p.rank}#{position} ${p.highlight}#{time}${p.record})`,
@@ -63,14 +63,14 @@ export default {
   },
   dediRecord: {
     message: `${p.highlight}#{nickname}${p.dedirecord} has #{status} the ${p.rank}#{position}${p.dedirecord} dedimania record. Time${p.highlight}: #{time}#{difference}`,
-    public: true
+    public: false
   },
   ultiDifference: {
     message: ` $n${p.dedirecord}(${p.rank}#{position} ${p.highlight}+#{score}${p.dedirecord})`,
   },
   ultiRecord: {
     message: `${p.highlight}#{nickname}${p.dedirecord} has #{status} the ${p.rank}#{position}${p.dedirecord} ultimania record. Score${p.highlight}: #{score}#{difference}`,
-    public: true
+    public: false
   },
   nextJuke: {
     message: `${p.vote}The next map will be ${p.highlight}#{map}${p.vote}, as requested by ${p.highlight}#{nickname}${p.vote}.`,

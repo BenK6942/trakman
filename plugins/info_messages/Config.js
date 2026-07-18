@@ -1,7 +1,7 @@
 const p = tm.utils.palette
 
 export default {
-  isEnabled: true,
+  isEnabled: false,
   // All the info messages will be prefixed with this text
   messagePrefix: `${p.record}[${p.highlight}INFO${p.record}]`,
   // Default formatting for the info messages

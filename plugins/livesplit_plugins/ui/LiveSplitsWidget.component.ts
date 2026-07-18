@@ -5,20 +5,30 @@ import { Logger } from '../../../src/Logger.js'
 
 export default class LiveSplitsWidget extends StaticComponent {
   private readonly header: StaticHeader
-  // Updated cache definition to track the raw numerical milliseconds
+  
+  // Cache for dynamic active run times
   private readonly liveSessionCache: Map<string, { mapId: string; time: string; rawTime?: number }> = new Map()
-  //totalRunTimeCache 
+  
+  // STATIC CACHE: Captures the player's PB exactly once when they join or at startup
+  private readonly frozenPBCache: Map<string, number> = new Map()
+  
+  // Cache for the aggregate run time
   private readonly totalRunTimeCache: Map<string, string> = new Map()
+  
   // Maintain a persistent layout array that never drops or alters indexes during the match
   private frozenPlaylist: tm.Map[] = []
-  // Tracks exactly which track index slot in the list is currently being played
   private currentPlaylistIndex: number = 0
-  // Guard flag to ensure the jukebox collection capture routine happens exactly once on the first map switch
   private isPlaylistInitialized: boolean = false
 
   constructor() {
     super((componentIds as any).liveSplits ?? 123456)
     this.header = new StaticHeader('race')
+
+    // Initial hydration for any players already on the server when the plugin starts/reloads
+    for (const player of tm.players.list) {
+      this.fetchAndFreezePBs(player.login)
+      this.initializeFromDatabase(player.login)
+    }
  
     this.renderOnEvent('PlayerFinish', (info: tm.FinishInfo) => { 
       setTimeout(async () => {
@@ -27,10 +37,10 @@ export default class LiveSplitsWidget extends StaticComponent {
     })
 
     this.renderOnEvent('PlayerJoin', (info: tm.JoinInfo) => {
+      this.fetchAndFreezePBs(info.login)
       this.initializeFromDatabase(info.login)
     })
 
-    // Capture and lock down the timeline order upon the NEXT map start
     this.renderOnEvent('BeginMap', () => {
       if (!this.isPlaylistInitialized) {
         this.initializePlaylistOnMatchStart()
@@ -45,14 +55,10 @@ export default class LiveSplitsWidget extends StaticComponent {
     })
   }
 
-  // Expanded height of the widget container to perfectly accommodate the extra total row
   getHeight(): number {
     return config.entryHeight * (config.entries + 1) + StaticHeader.raceHeight + config.margin
   }
 
-  /**
-   * Captures the entire chronological layout timeline exactly once on the next map load.
-   */
   private initializePlaylistOnMatchStart(): void {
     this.frozenPlaylist = []
     this.currentPlaylistIndex = 0
@@ -68,9 +74,6 @@ export default class LiveSplitsWidget extends StaticComponent {
     this.isPlaylistInitialized = true
   }
 
-  /**
-   * Matches the newly loaded map against our immutable frozen sequence array to pinpoint the current track index.
-   */
   private updateActivePlaylistPointer(): void {
     if (!tm.maps.current) { return }
     
@@ -79,60 +82,70 @@ export default class LiveSplitsWidget extends StaticComponent {
     if (index !== -1) {
       this.currentPlaylistIndex = index
     } else {
-      // Hard fallback: If an unpredicted map drops outside your locked layout array, force a fresh layout capture
       this.initializePlaylistOnMatchStart()
     }
   }
 
-/**
- * Hydrates memory cache securely using internal map IDs and calculates total run time.
- */
-private async initializeFromDatabase(login: string): Promise<void> {
-  const playerObj = tm.players.get(login)
-  if (playerObj === undefined) { return }
+  private async fetchAndFreezePBs(login: string): Promise<void> {
+    const query = `
+      SELECT map_uid, personal_best_time 
+      FROM livesplits 
+      WHERE player_login = $1 AND personal_best_time IS NOT NULL;
+    `
+    const result = await tm.db.query(query, login)
 
-  // Query 1: Fetch individual map splits
-  const splitQuery = `
-    SELECT l.map_uid, l.finish_time 
-    FROM livesplits l 
-    INNER JOIN maps m ON m.id = l.map_id 
-    WHERE l.player_login = $1;
-  `
-  // Query 2: Let the database handle the sum optimization natively
-  const totalQuery = `
-    SELECT SUM(COALESCE(l.finish_time,0)) as total_time
-    FROM livesplits l
-    INNER JOIN maps m ON m.id = l.map_id
-    WHERE l.player_login = $1;
-  `
-
-  const [splitResult, totalResult] = await Promise.all([
-    tm.db.query(splitQuery, login),
-    tm.db.query(totalQuery, login)
-  ])
-
-  // Process Split Data
-  if (!(splitResult instanceof Error)) {
-    for (const row of splitResult) {
-      if (row.map_uid) {
-        this.liveSessionCache.set(`${login}_${row.map_uid}`, {
-          mapId: String(row.map_uid),
-          time: row.finish_time !== null ? tm.utils.getTimeString(row.finish_time) : '-'
-        })
+    if (!(result instanceof Error)) {
+      for (const row of result) {
+        if (row.map_uid) {
+          this.frozenPBCache.set(`${login}_${row.map_uid}`, Number(row.personal_best_time))
+        }
       }
     }
   }
 
-  // Process Total Runtime Query
-  if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
-    const totalMs = Number(totalResult[0].total_time)
-    this.totalRunTimeCache.set(login, tm.utils.getTimeString(totalMs))
-  } else {
-    this.totalRunTimeCache.set(login, '-')
-  }
+  private async initializeFromDatabase(login: string): Promise<void> {
+    const playerObj = tm.players.get(login)
+    if (playerObj === undefined) { return }
 
-  this.displayToPlayer(login)
-}
+    const splitQuery = `
+      SELECT l.map_uid, l.finish_time 
+      FROM livesplits l 
+      INNER JOIN maps m ON m.id = l.map_id 
+      WHERE l.player_login = $1;
+    `
+    const totalQuery = `
+      SELECT SUM(COALESCE(l.finish_time,0)) as total_time
+      FROM livesplits l
+      INNER JOIN maps m ON m.id = l.map_id
+      WHERE l.player_login = $1;
+    `
+
+    const [splitResult, totalResult] = await Promise.all([
+      tm.db.query(splitQuery, login),
+      tm.db.query(totalQuery, login)
+    ])
+
+    if (!(splitResult instanceof Error)) {
+      for (const row of splitResult) {
+        if (row.map_uid) {
+          this.liveSessionCache.set(`${login}_${row.map_uid}`, {
+            mapId: String(row.map_uid),
+            time: row.finish_time !== null ? tm.utils.getTimeString(row.finish_time) : '-',
+            rawTime: row.finish_time !== null ? Number(row.finish_time) : undefined
+          })
+        }
+      }
+    }
+
+    if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
+      const totalMs = Number(totalResult[0].total_time)
+      this.totalRunTimeCache.set(login, tm.utils.getTimeString(totalMs))
+    } else {
+      this.totalRunTimeCache.set(login, '-')
+    }
+
+    this.displayToPlayer(login)
+  }
 
   display() {
     if (!this.isDisplayed) { return }
@@ -141,9 +154,6 @@ private async initializeFromDatabase(login: string): Promise<void> {
     }
   }
 
-  /**
-   * Builds the localized component list utilizing a dynamic sliding layout window.
-   */
   displayToPlayer(login: string): void | any {
     if (!this.isDisplayed) { return }
     if (this.hasPanelsHidden(login)) { return this.hideToPlayer(login) }
@@ -155,17 +165,12 @@ private async initializeFromDatabase(login: string): Promise<void> {
     const totalEntries = Math.min(this.frozenPlaylist.length, MAX_VISIBLE_ENTRIES)
     const renderCount = totalEntries > 0 ? totalEntries : 1
 
-    // FIXED: Calculate sliding window index boundary limits
-    // Centering offset defaults to 2 items behind the active index
     let startIndex = Math.max(0, this.currentPlaylistIndex - 2)
-    
-    // Safety clamp: Ensure sliding frame viewport bounds do not overshoot layout limits
     if (startIndex + MAX_VISIBLE_ENTRIES > this.frozenPlaylist.length) {
       startIndex = Math.max(0, this.frozenPlaylist.length - MAX_VISIBLE_ENTRIES)
     }
 
     for (let i = 0; i < renderCount; i++) {
-      // Fetch item relative to calculated sliding viewport start position
       const absoluteMapIndex = startIndex + i
       const map = this.frozenPlaylist[absoluteMapIndex]
       
@@ -175,38 +180,53 @@ private async initializeFromDatabase(login: string): Promise<void> {
         
         let displayName = map.name
         if (isCurrent) {
-          displayName = `$F00» $FFF${map.name}` // Active track marker (Red arrow)
+          displayName = `$F00» $FFF${map.name}`
         } else if (isFinished) {
-          displayName = `$888× $777${map.name}` // Completed map marker (Gray check)
+          displayName = ` $777${map.name}`
         }
         
-        mapNames.push(displayName)
-        
         const cachedRecord = this.liveSessionCache.get(`${login}_${map.id}`)
+        const frozenPbMs = this.frozenPBCache.get(`${login}_${map.id}`)
         
-        // Highlight active track split running timers in green ($0F0)
+        let diffDisplay = '       ' // Default spacing for un-run maps
+        if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
+          const diff = cachedRecord.rawTime - frozenPbMs
+          if (diff > 0) {
+            diffDisplay = `$F00+${tm.utils.getTimeString(diff)}`
+          } else if (diff < 0) {
+            diffDisplay = `$0F0-${tm.utils.getTimeString(Math.abs(diff))}`
+          } else {
+            diffDisplay = `$888${tm.utils.getTimeString(0)}`
+          }
+        }
+        
+        // Merge the difference block directly into the display name string
+        mapNames.push(`${diffDisplay}  ${displayName}`)
+
         const displayTime = cachedRecord 
           ? (isCurrent ? `$0F0${cachedRecord.time}` : cachedRecord.time) 
           : '-'
         
         finishTimes.push(displayTime)
       } else {
-        mapNames.push('$888No Maps Juked')
+        mapNames.push('       $888No Maps Juked')
         finishTimes.push(' ')
       }
     }
 
-	const dynamicListHeight = config.entryHeight * renderCount
+    const dynamicListHeight = config.entryHeight * renderCount
     const listUi = new List(renderCount, config.width, dynamicListHeight, config.columnProportions)
+    
+    // Now correctly passing exactly two arguments
     const content = listUi.constructXml(mapNames, finishTimes)
 
-    // Pull the computed DB aggregate value out directly
     const cachedTotal = this.totalRunTimeCache.get(login) ?? '-'
     const hasAnyFinishes = cachedTotal !== '-'
 
-    // Render a single-row List helper that matches layout structure
     const totalRunTimeHeight = config.entryHeight
     const totalListUi = new List(1, config.width, totalRunTimeHeight, config.columnProportions)
+    
+    // Total row only gets two arrays as well
     const totalContent = totalListUi.constructXml(
       ['$BBBTotal run time'],
       [hasAnyFinishes ? `$0F0${cachedTotal}` : '$888-']
@@ -216,10 +236,9 @@ private async initializeFromDatabase(login: string): Promise<void> {
     <frame posn="${this.positionX} ${this.positionY} 1">
       <format textsize="1" textcolor="FFFF"/> 
         ${this.header.constructXml(config.title, config.icon, this.side)}
-		<quad posn="0 -${this.header.options.height + config.margin} 1" sizen="14.675 13" bgcolor="0006"/>
+        <quad posn="0 -${this.header.options.height + config.margin} 1" sizen="14.675 13" bgcolor="0006"/>
         <frame posn="0 -${this.header.options.height + config.margin} 1">
           ${content}
-          <!-- Places the total time directly below the dynamic split entries -->
           <frame posn="0 -${dynamicListHeight} 1">
             ${totalContent}
           </frame>

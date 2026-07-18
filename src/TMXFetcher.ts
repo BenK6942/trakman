@@ -209,7 +209,7 @@ export abstract class TMXFetcher {
     }
     if (prefix === undefined) {
       const error = new Error(`Cannot fetch map info from TMX (map UID: ${mapId})`)
-      //Logger.warn(error.message)
+      Logger.warn(error.message)
       return error
     }
     let replays = await this.getReplays(tmxId as number, prefix)

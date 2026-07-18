@@ -1,4 +1,4 @@
 export default {
-  isEnabled: true,
+  isEnabled: false,
   cacheSize: 30
 }

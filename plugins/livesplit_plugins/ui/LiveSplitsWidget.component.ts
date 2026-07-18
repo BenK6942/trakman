@@ -182,7 +182,7 @@ export default class LiveSplitsWidget extends StaticComponent {
         if (isCurrent) {
           displayName = `$F00» $FFF${map.name}`
         } else if (isFinished) {
-          displayName = `$888× $777${map.name}`
+          displayName = ` $777${map.name}`
         }
         
         const cachedRecord = this.liveSessionCache.get(`${login}_${map.id}`)

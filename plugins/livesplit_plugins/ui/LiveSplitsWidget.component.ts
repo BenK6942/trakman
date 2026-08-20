@@ -19,6 +19,9 @@ export default class LiveSplitsWidget extends StaticComponent {
   private frozenPlaylist: tm.Map[] = []
   private currentPlaylistIndex: number = 0
   private isPlaylistInitialized: boolean = false
+  
+  // [MODIFIED] Flag to ensure the last map is only re-queued exactly once per playlist
+  private hasRequeuedLastMap: boolean = false
 
   constructor() {
     super((componentIds as any).liveSplits ?? 123456)
@@ -41,14 +44,23 @@ export default class LiveSplitsWidget extends StaticComponent {
       this.initializeFromDatabase(info.login)
     })
 
-    this.renderOnEvent('BeginMap', () => {
-      if (!this.isPlaylistInitialized) {
-        this.initializePlaylistOnMatchStart()
-      } else {
-        this.updateActivePlaylistPointer()
+    tm.commands.add(
+      {
+        aliases: [`ip`, `initializePlaylist`],
+        help: `LiveSpitsWidget: Initialize playlist.`, 
+        callback: async (info: tm.MessageInfo) => {
+          this.renderOnEvent('BeginMap', () => {
+            if (!this.isPlaylistInitialized) {
+              this.initializePlaylist()
+            } else {
+              this.updateActivePlaylistPointer()
+            }
+            this.display()
+          })
+        },
+        privilege: 1
       }
-      this.display()
-    })
+    ) 
 
     this.onPanelHide((player) => {
       this.displayToPlayer(player.login)
@@ -59,21 +71,23 @@ export default class LiveSplitsWidget extends StaticComponent {
     return config.entryHeight * (config.entries + 1) + StaticHeader.raceHeight + config.margin
   }
 
-  private initializePlaylistOnMatchStart(): void {
+  private initializePlaylist(): void {
     this.frozenPlaylist = []
     this.currentPlaylistIndex = 0
+    this.hasRequeuedLastMap = false // [MODIFIED] Reset flag when a new playlist is initialized
 
     if (tm.maps.current) {
       this.frozenPlaylist.push(tm.maps.current)
     }
 
-    for (const map of tm.jukebox.queue) {
-      this.frozenPlaylist.push(map)
+    for (const entry of tm.jukebox.juked) {
+      this.frozenPlaylist.push(entry.map)
     }
 
     this.isPlaylistInitialized = true
   }
 
+  // [MODIFIED] Checks for last map and ensures it only re-queues once
   private updateActivePlaylistPointer(): void {
     if (!tm.maps.current) { return }
     
@@ -81,9 +95,25 @@ export default class LiveSplitsWidget extends StaticComponent {
     
     if (index !== -1) {
       this.currentPlaylistIndex = index
+
+      // [MODIFIED] Re-queue only if it's the last map AND hasn't been re-queued yet
+      const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
+      if (isLastMap && this.frozenPlaylist.length > 0 && !this.hasRequeuedLastMap) {
+        this.requeueLastMapOnce(tm.maps.current)
+      }
     } else {
-      this.initializePlaylistOnMatchStart()
+      this.initializePlaylist()
     }
+  }
+
+  // [MODIFIED] Re-queues the last map and flips the flag to prevent infinite loops
+  private requeueLastMapOnce(map: tm.Map): void {
+    const isAlreadyNext = tm.jukebox.juked[0]?.map.id === map.id
+    if (!isAlreadyNext) {
+      tm.jukebox.add(map.id, undefined)
+      Logger.info(`[LiveSplitsWidget] Re-queued last playlist map once: ${map.name} (${map.id})`)
+    }
+    this.hasRequeuedLastMap = true // Mark as done so it won't re-queue again
   }
 
   private async fetchAndFreezePBs(login: string): Promise<void> {
@@ -209,7 +239,7 @@ export default class LiveSplitsWidget extends StaticComponent {
         
         finishTimes.push(displayTime)
       } else {
-        mapNames.push('       $888No Maps Juked')
+        mapNames.push('      $888No Maps Juked')
         finishTimes.push(' ')
       }
     }
@@ -217,7 +247,6 @@ export default class LiveSplitsWidget extends StaticComponent {
     const dynamicListHeight = config.entryHeight * renderCount
     const listUi = new List(renderCount, config.width, dynamicListHeight, config.columnProportions)
     
-    // Now correctly passing exactly two arguments
     const content = listUi.constructXml(mapNames, finishTimes)
 
     const cachedTotal = this.totalRunTimeCache.get(login) ?? '-'
@@ -226,7 +255,6 @@ export default class LiveSplitsWidget extends StaticComponent {
     const totalRunTimeHeight = config.entryHeight
     const totalListUi = new List(1, config.width, totalRunTimeHeight, config.columnProportions)
     
-    // Total row only gets two arrays as well
     const totalContent = totalListUi.constructXml(
       ['$BBBTotal run time'],
       [hasAnyFinishes ? `$0F0${cachedTotal}` : '$888-']

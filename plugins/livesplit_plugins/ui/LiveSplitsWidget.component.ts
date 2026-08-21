@@ -2,6 +2,7 @@ import { componentIds, StaticHeader, StaticComponent } from '../../ui/UI.js'
 import { List } from '../../ui/utils/List.js'
 import config from './LiveSplitsWidget.config.js'
 import { Logger } from '../../../src/Logger.js'
+import { MapPacksRepository } from '../MapPacksRepository.js'
 
 export default class LiveSplitsWidget extends StaticComponent {
   private readonly header: StaticHeader
@@ -85,6 +86,15 @@ export default class LiveSplitsWidget extends StaticComponent {
     }
 
     this.isPlaylistInitialized = true
+
+    //add query to search if array of maps exists in mappacks, if so do nothing, but if not then insert
+    const mapPacksRepo = new MapPacksRepository()
+    try { 
+      mapPacksRepo.insertIntoMapPacksTable(this.frozenPlaylist)
+    }
+    catch (error) {
+      Logger.error(`Failed to insert record: ${(error as Error).message}`)
+    }
   }
 
   // [MODIFIED] Checks for last map and ensures it only re-queues once

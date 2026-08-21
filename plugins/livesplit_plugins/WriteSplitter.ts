@@ -46,7 +46,7 @@ if (config.isEnabled) {
 				Logger.info(`splits values: finish_time: ${time_param}, splitTimeMinus321go: ${splitTimeMinus321go}, splitTime: ${splitTime}`)
 				try {
 					const currentMapUid  = tm.maps.current.id 
-					await liveSplitsRepo.addOrUpdate(currentMapUid, login_param, splitTimeMinus321go, splitTimeMinus321go)
+					await liveSplitsRepo.insertOrUpdateIntoLivesplitsTable(currentMapUid, login_param, splitTimeMinus321go, splitTimeMinus321go)
 				}
 				catch (error) {
 					Logger.error(`Failed to insert record: ${(error as Error).message}`)

@@ -12,10 +12,10 @@ const queries = [
     PRIMARY KEY(map_id, player_id)
   );`,
   `CREATE TABLE IF NOT EXISTS map_packs(
-    map_pack_id INT4 NOT NULL,
+    map_pack_id INT4 NOT NULL UNIQUE,
 	  map_pack_name varchar(100),
-	  map_id_clob TEXT,
-	  map_uid_clob TEXT
+	  map_id_array INT4[] NOT NULL UNIQUE,
+	  map_uid_array TEXT[] UNIQUE
   );`,
   `CREATE TABLE IF NOT EXISTS map_pack_pb_splits(
 	  map_pack_id INT4 NOT NULL, 

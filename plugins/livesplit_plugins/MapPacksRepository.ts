@@ -7,13 +7,13 @@ let mapPackId: number = -1
  
 export class MapPacksRepository extends Repository {
 
-  private async updateLiveSplitsMapPack(mapPackId: number, mapUids: string[]): Promise<void> {
+  private async updateLiveSplitsMapPack(mapPackId: number, mapIds: number[]): Promise<void> {
     const liveSplitsUpdateQuery = `
       UPDATE livesplits
       SET map_pack_id = $1
-      WHERE map_uid = ANY($2::text[])
+      WHERE map_id = ANY($2::int[])
     `;
-    await this.query(liveSplitsUpdateQuery, mapPackId, mapUids);
+    await this.query(liveSplitsUpdateQuery, mapPackId, mapIds);
   }
 
   async insertIntoMapPacksTable(maps: tm.Map[]): Promise<void> {
@@ -42,7 +42,7 @@ export class MapPacksRepository extends Repository {
         mapPackId = existingMapPackIndex
         Logger.info(`existingMapPackIndex: ${existingMapPackIndex}`)
        
-        await this.updateLiveSplitsMapPack(mapPackId, mapUids);
+        await this.updateLiveSplitsMapPack(mapPackId, mapIds);
 
         return //exit early (just sets liveplits mappack and nothing else)
       }
@@ -68,7 +68,7 @@ export class MapPacksRepository extends Repository {
       const values: any[] = [mapPackId, mapIds, mapUids]
       await this.query(query, ...values)
       
-      await this.updateLiveSplitsMapPack(mapPackId, mapUids); 
+      await this.updateLiveSplitsMapPack(mapPackId, mapIds); 
 
     } catch (error) {
       Logger.error(`[MapPacks] Error inserting record: ${(error as Error).message}`)

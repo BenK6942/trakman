@@ -20,7 +20,8 @@ export default class LiveSplitsWidget extends StaticComponent {
   private frozenPlaylist: tm.Map[] = []
   private currentPlaylistIndex: number = 0
   private isPlaylistInitialized: boolean = false
-  
+  private currentMapPackId: number = 0
+
   // [MODIFIED] Flag to ensure the last map is only re-queued exactly once per playlist
   private hasRequeuedLastMap: boolean = false
 
@@ -76,6 +77,9 @@ export default class LiveSplitsWidget extends StaticComponent {
     this.frozenPlaylist = []
     this.currentPlaylistIndex = 0
     this.hasRequeuedLastMap = false // [MODIFIED] Reset flag when a new playlist is initialized
+    
+    tm.db.query(`UPDATE livesplits SET finish_time = NULL;`)
+    tm.db.query(`UPDATE livesplits SET map_pack_id = NULL;`)
 
     if (tm.maps.current) {
       this.frozenPlaylist.push(tm.maps.current)
@@ -87,7 +91,10 @@ export default class LiveSplitsWidget extends StaticComponent {
 
     this.isPlaylistInitialized = true
 
-    //add query to search if array of maps exists in mappacks, if so do nothing, but if not then insert
+    //query to search if array of maps exists in mappacks, 
+    // if insert succeeds into mappacks get new value for mappackid to insert into livesplits for each map to be played
+    // if insert fails (as in mappack already exists) set current mappackid in livesplits for each map to be played
+
     const mapPacksRepo = new MapPacksRepository()
     try { 
       mapPacksRepo.insertIntoMapPacksTable(this.frozenPlaylist)
@@ -95,6 +102,8 @@ export default class LiveSplitsWidget extends StaticComponent {
     catch (error) {
       Logger.error(`Failed to insert record: ${(error as Error).message}`)
     }
+
+    
   }
 
   // [MODIFIED] Checks for last map and ensures it only re-queues once

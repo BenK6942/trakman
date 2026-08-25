@@ -51,14 +51,21 @@ export default class LiveSplitsWidget extends StaticComponent {
         aliases: [`ip`, `initializePlaylist`],
         help: `LiveSpitsWidget: Initialize playlist.`, 
         callback: async (info: tm.MessageInfo) => {
+          this.isPlaylistInitialized = false
           this.renderOnEvent('BeginMap', () => {
             if (!this.isPlaylistInitialized) {
-              this.initializePlaylist()
+              this.initializePlaylist()          
+              setTimeout(async () => {
+                await this.initializeFromDatabase(info.login)
+              }, 1000)
             } else {
               this.updateActivePlaylistPointer()
             }
             this.display()
           })
+          setTimeout(async () => {
+            await this.initializeFromDatabase(info.login)
+          }, 1000)
         },
         privilege: 1
       }
@@ -78,8 +85,7 @@ export default class LiveSplitsWidget extends StaticComponent {
     this.currentPlaylistIndex = 0
     this.hasRequeuedLastMap = false // [MODIFIED] Reset flag when a new playlist is initialized
     
-    tm.db.query(`UPDATE livesplits SET finish_time = NULL;`)
-    tm.db.query(`UPDATE livesplits SET map_pack_id = NULL;`)
+    tm.db.query(`UPDATE livesplits SET map_pack_id = NULL,finish_time = NULL;`)
 
     if (tm.maps.current) {
       this.frozenPlaylist.push(tm.maps.current)
@@ -101,9 +107,7 @@ export default class LiveSplitsWidget extends StaticComponent {
     }
     catch (error) {
       Logger.error(`Failed to insert record: ${(error as Error).message}`)
-    }
-
-    
+    } 
   }
 
   // [MODIFIED] Checks for last map and ensures it only re-queues once

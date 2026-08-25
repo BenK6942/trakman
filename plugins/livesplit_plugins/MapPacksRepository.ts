@@ -1,20 +1,22 @@
 import { Repository } from '../../src/database/Repository.js'
 import { MapIdsRepository } from '../../src/database/MapIdsRepository.js' 
 import { Logger } from '../../src/Logger.js'
+import { LiveSplitsRepository } from './LiveSplitsRepository.js'
 
 const mapIdsRepo = new MapIdsRepository() 
+const liveSplitsRepo = new LiveSplitsRepository()
 let mapPackId: number = -1
  
 export class MapPacksRepository extends Repository {
 
-  private async updateLiveSplitsMapPack(mapPackId: number, mapIds: number[]): Promise<void> {
-    const liveSplitsUpdateQuery = `
-      UPDATE livesplits
-      SET map_pack_id = $1
-      WHERE map_id = ANY($2::int[])
-    `;
-    await this.query(liveSplitsUpdateQuery, mapPackId, mapIds);
-  }
+  // private async updateLiveSplitsMapPack(mapPackId: number, mapIds: number[]): Promise<void> {
+  //   const liveSplitsUpdateQuery = `
+  //     UPDATE livesplits
+  //     SET map_pack_id = $1
+  //     WHERE map_id = ANY($2::int[])
+  //   `;
+  //   await this.query(liveSplitsUpdateQuery, mapPackId, mapIds);
+  // }
 
   async insertIntoMapPacksTable(maps: tm.Map[]): Promise<void> {
     try {
@@ -42,7 +44,7 @@ export class MapPacksRepository extends Repository {
         mapPackId = existingMapPackIndex
         Logger.info(`existingMapPackIndex: ${existingMapPackIndex}`)
        
-        await this.updateLiveSplitsMapPack(mapPackId, mapIds);
+        await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids);
 
         return //exit early (just sets liveplits mappack and nothing else)
       }
@@ -68,7 +70,7 @@ export class MapPacksRepository extends Repository {
       const values: any[] = [mapPackId, mapIds, mapUids]
       await this.query(query, ...values)
       
-      await this.updateLiveSplitsMapPack(mapPackId, mapIds); 
+      await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids);
 
     } catch (error) {
       Logger.error(`[MapPacks] Error inserting record: ${(error as Error).message}`)

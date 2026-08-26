@@ -23,7 +23,8 @@ const queries = [
     map_uid varchar(50), 
     player_id INT4 NOT NULL, 
     player_login varchar(50),
-    finish_time INT4
+    finish_time INT4,
+    PRIMARY KEY(map_pack_id, map_id, player_id)
   );`,
   `CREATE OR REPLACE VIEW v_pb_splits_total AS
     SELECT 

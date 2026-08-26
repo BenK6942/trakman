@@ -24,16 +24,16 @@ export class MapPacksRepository extends Repository {
       const mapIdAndUidArray = await mapIdsRepo.get(mapUids)
       const mapIds: number[] = mapIdAndUidArray.map((row) => (row.id));
 
-      if (mapUids === undefined) {
+      if (mapIds === undefined) {
         Logger.error(`[MapPacks] Failed to look up database IDs for Maps: ${mapUids}`)
         return
       }
 
       const indexExistsQuery = `
-        SELECT map_pack_id FROM map_packs WHERE map_uid_array = $1;
+        SELECT map_pack_id FROM map_packs WHERE map_id_array = $1;
       `;
       
-      const indexExists = await this.query(indexExistsQuery,mapUids);
+      const indexExists = await this.query(indexExistsQuery,mapIds);
      
       const firstRow = indexExists?.[0];
       const existingMapPackIndex = (firstRow?.map_pack_id !== null && firstRow?.map_pack_id !== undefined) 
@@ -42,7 +42,7 @@ export class MapPacksRepository extends Repository {
       
       if (existingMapPackIndex != -1){ 
         mapPackId = existingMapPackIndex
-        Logger.info(`existingMapPackIndex: ${existingMapPackIndex}`)
+        Logger.info(`existingMapPackIndex: ${mapPackId}`)
        
         await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids);
 

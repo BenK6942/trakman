@@ -3,6 +3,8 @@ import { List } from '../../ui/utils/List.js'
 import config from './LiveSplitsWidget.config.js'
 import { Logger } from '../../../src/Logger.js'
 import { MapPacksRepository } from '../MapPacksRepository.js'
+import { MapPackPbSplitsRepository } from '../MapPackPbSplitsRepository.js'
+import { PlayerRepository } from '../../../src/database/PlayerRepository.js'
 
 export default class LiveSplitsWidget extends StaticComponent {
   private readonly header: StaticHeader
@@ -25,6 +27,8 @@ export default class LiveSplitsWidget extends StaticComponent {
   // [MODIFIED] Flag to ensure the last map is only re-queued exactly once per playlist
   private hasRequeuedLastMap: boolean = false
 
+  private mapPackCompletion: boolean = false
+
   constructor() {
     super((componentIds as any).liveSplits ?? 123456)
     this.header = new StaticHeader('race')
@@ -36,7 +40,13 @@ export default class LiveSplitsWidget extends StaticComponent {
     }
  
     this.renderOnEvent('PlayerFinish', (info: tm.FinishInfo) => { 
-      setTimeout(async () => {
+      setTimeout(async () => { 
+        // Check if the current map is the last map in the frozen playlist
+        const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
+        if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
+          await this.checkPlaylistCompletion(info.login)
+        }
+        
         await this.initializeFromDatabase(info.login)
       }, 1000)
     })
@@ -52,7 +62,15 @@ export default class LiveSplitsWidget extends StaticComponent {
         help: `LiveSpitsWidget: Initialize playlist.`, 
         callback: async (info: tm.MessageInfo) => {
           this.isPlaylistInitialized = false
+          this.mapPackCompletion = false
           this.renderOnEvent('BeginMap', () => {
+            // Stop processing if map pack is already complete
+            if (this.mapPackCompletion) {
+              setTimeout(async () => {
+                await this.initializeFromDatabase(info.login)
+              }, 1000)
+              return
+            }
             if (!this.isPlaylistInitialized) {
               this.initializePlaylist()          
               setTimeout(async () => {
@@ -137,6 +155,28 @@ export default class LiveSplitsWidget extends StaticComponent {
       Logger.info(`[LiveSplitsWidget] Re-queued last playlist map once: ${map.name} (${map.id})`)
     }
     this.hasRequeuedLastMap = true // Mark as done so it won't re-queue again
+  }
+
+  private async onPlaylistFinished(login: string, isNewPb: boolean): Promise<void> {
+    this.mapPackCompletion = true
+    if (isNewPb) {
+      tm.sendMessage(`$0F0[LiveSplits] $FFFPlayer $0F0${login} $FFFset a new Map Pack Personal Best!`)
+      Logger.info(`[LiveSplitsWidget] New PB stored in map_pack_pb_splits for player ${login}`)
+    } else {
+      tm.sendMessage(`$0F0[LiveSplits] $FFFPlayer $0F0${login} $FFFcompleted the map pack run.`)
+    }
+  }
+
+  private async checkPlaylistCompletion(login: string): Promise<void> {
+    const playerRepo = new PlayerRepository()
+    const playerId = await playerRepo.getId(login)
+    if (playerId === undefined) {
+        Logger.error(`[LiveSplits] Failed to look up player id: ${login}`)
+        return
+    }
+    const mapPackPbSplitsRepo = new MapPackPbSplitsRepository()
+    const isNewPb = await mapPackPbSplitsRepo.saveMapPackPbIfBest(playerId)
+    await this.onPlaylistFinished(login, isNewPb)
   }
 
   private async fetchAndFreezePBs(login: string): Promise<void> {

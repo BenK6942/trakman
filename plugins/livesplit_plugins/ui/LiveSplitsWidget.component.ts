@@ -357,12 +357,9 @@ private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> 
         if (isCurrent) {
           displayName = `$F00» $FFF${map.name}`
         } else if (isFinished) {
-          displayName = ` $777${map.name}`
+          displayName = `$777${tm.utils.strip(map.name)}`
         }
-        
-        const cachedRecord = this.liveSessionCache.get(`${login}_${map.id}`)
-        const frozenPbMs = this.frozenPBCache.get(`${login}_${map.id}`)
-        
+         
         let diffDisplay = '       ' // Default spacing for un-run maps
         
         // Compute cumulative time of the run up to THIS map's index
@@ -372,22 +369,23 @@ private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> 
         if (splitDiff !== undefined) { 
           diffDisplay = splitDiff
         }
-        // if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
-        //   const diff = cachedRecord.rawTime - frozenPbMs
-        //   if (diff > 0) {
-        //     diffDisplay = `$F00+${tm.utils.getTimeString(diff)}`
-        //   } else if (diff < 0) {
-        //     diffDisplay = `$0F0-${tm.utils.getTimeString(Math.abs(diff))}`
-        //   } else {
-        //     diffDisplay = `$888${tm.utils.getTimeString(0)}`
-        //   }
-        // }
         
+        const cachedRecord = this.liveSessionCache.get(`${login}_${map.id}`)
+        const frozenPbMs = this.frozenPBCache.get(`${login}_${map.id}`)
+
+        //sets color to gold if personal best split on track
+        if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
+          const diff = cachedRecord.rawTime - frozenPbMs
+          if (diff < 0) {
+            diffDisplay = `$EB0${tm.utils.strip(diffDisplay, true)}`
+          }
+        }
+         
         // Merge the difference block directly into the display name string
         mapNames.push(`${diffDisplay}  ${displayName}`)
 
         const displayTime = cachedRecord 
-          ? (isCurrent ? `$0F0${cachedRecord.time}` : cachedRecord.time) 
+          ? (isCurrent ? `${cachedRecord.time}` : cachedRecord.time) 
           : '-'
         
         finishTimes.push(displayTime)

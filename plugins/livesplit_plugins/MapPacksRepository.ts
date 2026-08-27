@@ -9,31 +9,32 @@ let mapPackId: number = -1
  
 export class MapPacksRepository extends Repository {
 
-  // private async updateLiveSplitsMapPack(mapPackId: number, mapIds: number[]): Promise<void> {
-  //   const liveSplitsUpdateQuery = `
-  //     UPDATE livesplits
-  //     SET map_pack_id = $1
-  //     WHERE map_id = ANY($2::int[])
-  //   `;
-  //   await this.query(liveSplitsUpdateQuery, mapPackId, mapIds);
-  // }
-
   async insertIntoMapPacksTable(maps: tm.Map[]): Promise<void> {
     try {
       const mapUids: string[] = maps.map((row) => row.id);
-      const mapIdAndUidArray = await mapIdsRepo.get(mapUids)
-      const mapIds: number[] = mapIdAndUidArray.map((row) => (row.id));
+      const mapIdAndUidArray = await mapIdsRepo.get(mapUids);
 
-      if (mapIds === undefined) {
-        Logger.error(`[MapPacks] Failed to look up database IDs for Maps: ${mapUids}`)
-        return
+      if (!mapIdAndUidArray || mapIdAndUidArray.length !== mapUids.length) {
+        Logger.error(`[MapPacks] Failed to look up database IDs for Maps: ${mapUids}`);
+        return;
       }
 
+      // Map returned database rows into a lookup dictionary
+      const idMap = new Map<string, number>(
+        mapIdAndUidArray.map((row) => [row.uid, row.id])
+      );
+
+      // Preserve strict input order for mapIds
+      const mapIds: number[] = mapUids.map((uid) => idMap.get(uid)!);
+
+      // Check both arrays with PostgreSQL strict equality '='
       const indexExistsQuery = `
-        SELECT map_pack_id FROM map_packs WHERE map_id_array = $1;
+        SELECT map_pack_id 
+        FROM map_packs 
+        WHERE map_id_array = $1 AND map_uid_array = $2;
       `;
       
-      const indexExists = await this.query(indexExistsQuery,mapIds);
+      const indexExists = await this.query(indexExistsQuery, mapIds, mapUids);
      
       const firstRow = indexExists?.[0];
       const existingMapPackIndex = (firstRow?.map_pack_id !== null && firstRow?.map_pack_id !== undefined) 

@@ -6,6 +6,15 @@ import { MapPacksRepository } from '../MapPacksRepository.js'
 import { MapPackPbSplitsRepository } from '../MapPackPbSplitsRepository.js'
 import { PlayerRepository } from '../../../src/database/PlayerRepository.js'
 
+interface CumulativeSplitData {
+  mapPackId: number
+  mapId: number
+  mapUid: string
+  mapOrder: number
+  mapTime: number
+  cumulativeTime: number
+}
+
 export default class LiveSplitsWidget extends StaticComponent {
   private readonly header: StaticHeader
   
@@ -14,9 +23,12 @@ export default class LiveSplitsWidget extends StaticComponent {
   
   // STATIC CACHE: Captures the player's PB exactly once when they join or at startup
   private readonly frozenPBCache: Map<string, number> = new Map()
-  
+
+  // Cache for cumulative PB splits fetched from v_pb_cumulative_splits
+  private readonly cumulativePbCache: Map<string, CumulativeSplitData> = new Map()
+
   // Cache for the aggregate run time
-  private readonly totalRunTimeCache: Map<string, string> = new Map()
+  private readonly totalRunTimeCache: Map<string, { rawMs: number; formatted: string }> = new Map()
   
   // Maintain a persistent layout array that never drops or alters indexes during the match
   private frozenPlaylist: tm.Map[] = []
@@ -46,7 +58,7 @@ export default class LiveSplitsWidget extends StaticComponent {
         if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
           await this.checkPlaylistCompletion(info.login)
         }
-        
+
         await this.initializeFromDatabase(info.login)
       }, 1000)
     })
@@ -61,7 +73,7 @@ export default class LiveSplitsWidget extends StaticComponent {
         aliases: [`ip`, `initializePlaylist`],
         help: `LiveSpitsWidget: Initialize playlist.`, 
         callback: async (info: tm.MessageInfo) => {
-          this.isPlaylistInitialized = false
+          this.isPlaylistInitialized = false 
           this.mapPackCompletion = false
           this.renderOnEvent('BeginMap', () => {
             // Stop processing if map pack is already complete
@@ -74,6 +86,7 @@ export default class LiveSplitsWidget extends StaticComponent {
             if (!this.isPlaylistInitialized) {
               this.initializePlaylist()          
               setTimeout(async () => {
+                await this.fetchAndCacheCumulativePBsForPlayer(info.login)
                 await this.initializeFromDatabase(info.login)
               }, 1000)
             } else {
@@ -114,7 +127,7 @@ export default class LiveSplitsWidget extends StaticComponent {
     }
 
     this.isPlaylistInitialized = true
-
+  
     //query to search if array of maps exists in mappacks, 
     // if insert succeeds into mappacks get new value for mappackid to insert into livesplits for each map to be played
     // if insert fails (as in mappack already exists) set current mappackid in livesplits for each map to be played
@@ -126,6 +139,72 @@ export default class LiveSplitsWidget extends StaticComponent {
     catch (error) {
       Logger.error(`Failed to insert record: ${(error as Error).message}`)
     } 
+  }
+  
+private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> {
+  const query = `
+    SELECT 
+      v.map_pack_id,
+      v.player_id,
+      v.player_login,
+      v.map_order,
+      v.map_id,
+      v.map_uid,
+      v.map_time,
+      v.cumulative_time
+    FROM v_pb_cumulative_splits v
+    JOIN livesplits l 
+      ON v.map_pack_id = l.map_pack_id 
+     AND v.map_id = l.map_id
+     AND v.player_login = l.player_login
+    WHERE l.map_pack_id IS NOT NULL
+      AND l.player_login = $1;
+  `
+
+  const result = await tm.db.query(query, login)
+
+  if (!(result instanceof Error)) {
+    for (const row of result) {
+      const key = `${row.player_login}_${row.map_uid}`
+      this.cumulativePbCache.set(key, {
+        mapPackId: Number(row.map_pack_id),
+        mapId: Number(row.map_id),
+        mapUid: String(row.map_uid),
+        mapOrder: Number(row.map_order),
+        mapTime: Number(row.map_time),
+        cumulativeTime: Number(row.cumulative_time)
+      })
+    }
+  }
+} 
+  private getCumulativeDelta( login: string, mapUid: string,  cumulativeRunMs: number): { diffMs: number; formatted: string } | null {
+    const pbSplit = this.cumulativePbCache.get(`${login}_${mapUid}`)
+
+    if (!pbSplit || cumulativeRunMs === 0) {
+      return null
+    }
+
+    const diffMs = cumulativeRunMs - pbSplit.cumulativeTime
+    const sign = diffMs > 0 ? '$F00+' : diffMs < 0 ? '$0F0-' : '$888'
+    const formatted = `${sign}${tm.utils.getTimeString(Math.abs(diffMs))}`
+
+    return { diffMs, formatted }
+  }
+
+  private getCumulativeRunTimeUpToIndex(login: string, targetIndex: number): number {
+    let sum = 0
+    for (let i = 0; i <= targetIndex; i++) {
+      const map = this.frozenPlaylist[i]
+      if (!map) continue
+      const record = this.liveSessionCache.get(`${login}_${map.id}`)
+      if (record?.rawTime !== undefined) {
+        sum += record.rawTime
+      } else {
+        // Return 0 or break if intermediate split is missing
+        return 0 
+      }
+    }
+    return sum
   }
 
   // [MODIFIED] Checks for last map and ensures it only re-queues once
@@ -230,12 +309,15 @@ export default class LiveSplitsWidget extends StaticComponent {
       }
     }
 
-    if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
-      const totalMs = Number(totalResult[0].total_time)
-      this.totalRunTimeCache.set(login, tm.utils.getTimeString(totalMs))
-    } else {
-      this.totalRunTimeCache.set(login, '-')
-    }
+  if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
+    const totalMs = Number(totalResult[0].total_time)
+    this.totalRunTimeCache.set(login, {
+      rawMs: totalMs,
+      formatted: tm.utils.getTimeString(totalMs)
+    })
+  } else {
+    this.totalRunTimeCache.set(login, { rawMs: 0, formatted: '-' })
+  }
 
     this.displayToPlayer(login)
   }
@@ -282,16 +364,24 @@ export default class LiveSplitsWidget extends StaticComponent {
         const frozenPbMs = this.frozenPBCache.get(`${login}_${map.id}`)
         
         let diffDisplay = '       ' // Default spacing for un-run maps
-        if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
-          const diff = cachedRecord.rawTime - frozenPbMs
-          if (diff > 0) {
-            diffDisplay = `$F00+${tm.utils.getTimeString(diff)}`
-          } else if (diff < 0) {
-            diffDisplay = `$0F0-${tm.utils.getTimeString(Math.abs(diff))}`
-          } else {
-            diffDisplay = `$888${tm.utils.getTimeString(0)}`
-          }
+        
+        // Compute cumulative time of the run up to THIS map's index
+        const mapCumulativeRunMs = this.getCumulativeRunTimeUpToIndex(login, absoluteMapIndex)
+        const splitDiff = this.getCumulativeDelta(login, map.id, mapCumulativeRunMs)?.formatted
+        
+        if (splitDiff !== undefined) { 
+          diffDisplay = splitDiff
         }
+        // if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
+        //   const diff = cachedRecord.rawTime - frozenPbMs
+        //   if (diff > 0) {
+        //     diffDisplay = `$F00+${tm.utils.getTimeString(diff)}`
+        //   } else if (diff < 0) {
+        //     diffDisplay = `$0F0-${tm.utils.getTimeString(Math.abs(diff))}`
+        //   } else {
+        //     diffDisplay = `$888${tm.utils.getTimeString(0)}`
+        //   }
+        // }
         
         // Merge the difference block directly into the display name string
         mapNames.push(`${diffDisplay}  ${displayName}`)
@@ -312,15 +402,16 @@ export default class LiveSplitsWidget extends StaticComponent {
     
     const content = listUi.constructXml(mapNames, finishTimes)
 
-    const cachedTotal = this.totalRunTimeCache.get(login) ?? '-'
-    const hasAnyFinishes = cachedTotal !== '-'
+    const totalData = this.totalRunTimeCache.get(login)
+    const hasAnyFinishes = totalData !== undefined && totalData.formatted !== '-'
+    const cachedTotalFormatted = totalData?.formatted ?? '-'
 
     const totalRunTimeHeight = config.entryHeight
     const totalListUi = new List(1, config.width, totalRunTimeHeight, config.columnProportions)
     
     const totalContent = totalListUi.constructXml(
       ['$BBBTotal run time'],
-      [hasAnyFinishes ? `$0F0${cachedTotal}` : '$888-']
+      [hasAnyFinishes ? `$0F0${cachedTotalFormatted}` : '$888-']
     )
   
     const xml = `<manialink id="${this.id}">

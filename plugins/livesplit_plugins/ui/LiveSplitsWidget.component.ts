@@ -104,7 +104,19 @@ export default class LiveSplitsWidget extends StaticComponent {
         privilege: 1
       }
     ) 
-
+    tm.commands.add(
+      {
+        aliases: [`mp`, `loadMapPackIntoJukebox`],
+        help: `MapPack: Load Maps in specified mappack into the jukebox. [map_pack_id]`, 
+        params: [{ name: 'mapPackId', type: 'int' }],
+        callback: async (info: tm.MessageInfo, mapPackId: number) => {
+          const mapPacksRepo = new MapPacksRepository() 
+          mapPacksRepo.addMapPackToJukebox(info.login, mapPackId)
+        },
+        privilege: 1
+      }
+    )
+    
     this.onPanelHide((player) => {
       this.displayToPlayer(player.login)
     })

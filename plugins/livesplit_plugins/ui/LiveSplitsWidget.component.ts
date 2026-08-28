@@ -30,6 +30,9 @@ export default class LiveSplitsWidget extends StaticComponent {
   // Cache for the aggregate run time
   private readonly totalRunTimeCache: Map<string, { rawMs: number; formatted: string }> = new Map()
   
+  private readonly pbTotalCache: Map<string, { rawMs: number; formatted: string }> = new Map()
+  private readonly sumOfBestCache: Map<string, { rawMs: number; formatted: string }> = new Map()
+
   // Maintain a persistent layout array that never drops or alters indexes during the match
   private frozenPlaylist: tm.Map[] = []
   private currentPlaylistIndex: number = 0
@@ -108,7 +111,13 @@ export default class LiveSplitsWidget extends StaticComponent {
   }
 
   getHeight(): number {
-    return config.entryHeight * (config.entries + 1) + StaticHeader.raceHeight + config.margin
+    return config.entryHeight * (config.entries + 3.25) + StaticHeader.raceHeight + (config.margin * 2)
+  }
+
+  private trimTimeStr(timeStr: string): string {
+    // Strips leading "0:" and an optional leading "0" in the seconds
+    // Examples: "0:18.09" -> "18.09", "$0F0-0:05.12" -> "$0F0-5.12"
+    return timeStr.replace(/^(\$[A-Fa-f0-9]{3})?([+-])?0:0?/i, '$1$2')
   }
 
   private initializePlaylist(): void {
@@ -185,8 +194,8 @@ private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> 
     }
 
     const diffMs = cumulativeRunMs - pbSplit.cumulativeTime
-    const sign = diffMs > 0 ? '$F00+' : diffMs < 0 ? '$0F0-' : '$888'
-    const formatted = `${sign}${tm.utils.getTimeString(Math.abs(diffMs))}`
+    const sign = diffMs > 0 ? '$F00+' : diffMs <= 0 ? '$0F0-' : '$888'
+    const formatted = this.trimTimeStr(`${sign}${tm.utils.getTimeString(Math.abs(diffMs))}`)
 
     return { diffMs, formatted }
   }
@@ -292,9 +301,24 @@ private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> 
       WHERE l.player_login = $1;
     `
 
-    const [splitResult, totalResult] = await Promise.all([
+    const pbQuery = `
+      SELECT pb_total_run_time 
+      FROM v_pb_splits_total 
+      WHERE player_login = $1 
+        AND map_pack_id = (SELECT map_pack_id FROM livesplits WHERE player_login = $1 AND map_pack_id IS NOT NULL LIMIT 1);
+    `
+    const sobQuery = `
+      SELECT SUM(personal_best_time) as sum_of_best
+      FROM livesplits
+      WHERE player_login = $1 
+        AND map_pack_id = (SELECT map_pack_id FROM livesplits WHERE player_login = $1 AND map_pack_id IS NOT NULL LIMIT 1);
+    `
+
+    const [splitResult, totalResult, pbResult, sobResult] = await Promise.all([
       tm.db.query(splitQuery, login),
-      tm.db.query(totalQuery, login)
+      tm.db.query(totalQuery, login),
+      tm.db.query(pbQuery, login),
+      tm.db.query(sobQuery, login)
     ])
 
     if (!(splitResult instanceof Error)) {
@@ -302,22 +326,33 @@ private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> 
         if (row.map_uid) {
           this.liveSessionCache.set(`${login}_${row.map_uid}`, {
             mapId: String(row.map_uid),
-            time: row.finish_time !== null ? tm.utils.getTimeString(row.finish_time) : '-',
+            time: row.finish_time !== null ? this.trimTimeStr(tm.utils.getTimeString(row.finish_time)) : '-',
             rawTime: row.finish_time !== null ? Number(row.finish_time) : undefined
           })
         }
       }
     }
 
-  if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
-    const totalMs = Number(totalResult[0].total_time)
-    this.totalRunTimeCache.set(login, {
-      rawMs: totalMs,
-      formatted: tm.utils.getTimeString(totalMs)
-    })
-  } else {
-    this.totalRunTimeCache.set(login, { rawMs: 0, formatted: '-' })
-  }
+if (!(totalResult instanceof Error) && totalResult.length > 0 && totalResult[0].total_time !== null) {
+      const totalMs = Number(totalResult[0].total_time)
+      this.totalRunTimeCache.set(login, { rawMs: totalMs, formatted: this.trimTimeStr(tm.utils.getTimeString(totalMs)) })
+    } else {
+      this.totalRunTimeCache.set(login, { rawMs: 0, formatted: '-' })
+    }
+
+    if (!(pbResult instanceof Error) && pbResult.length > 0 && pbResult[0].pb_total_run_time !== null) {
+      const pbMs = Number(pbResult[0].pb_total_run_time)
+      this.pbTotalCache.set(login, { rawMs: pbMs, formatted: this.trimTimeStr(tm.utils.getTimeString(pbMs)) })
+    } else {
+      this.pbTotalCache.set(login, { rawMs: 0, formatted: '-' })
+    }
+
+    if (!(sobResult instanceof Error) && sobResult.length > 0 && sobResult[0].sum_of_best !== null) {
+      const sobMs = Number(sobResult[0].sum_of_best)
+      this.sumOfBestCache.set(login, { rawMs: sobMs, formatted: this.trimTimeStr(tm.utils.getTimeString(sobMs)) })
+    } else {
+      this.sumOfBestCache.set(login, { rawMs: 0, formatted: '-' })
+    }
 
     this.displayToPlayer(login)
   }
@@ -401,27 +436,52 @@ private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> 
     const content = listUi.constructXml(mapNames, finishTimes)
 
     const totalData = this.totalRunTimeCache.get(login)
+    const pbData = this.pbTotalCache.get(login)
+    const sobData = this.sumOfBestCache.get(login)
+    
     const hasAnyFinishes = totalData !== undefined && totalData.formatted !== '-'
     const cachedTotalFormatted = totalData?.formatted ?? '-'
+    const pbFormatted = pbData?.rawMs ? pbData.formatted : '-'
+    const sobFormatted = sobData?.rawMs ? sobData.formatted : '-'
 
-    const totalRunTimeHeight = config.entryHeight
-    const totalListUi = new List(1, config.width, totalRunTimeHeight, config.columnProportions)
-    
-    const totalContent = totalListUi.constructXml(
-      ['$BBBTotal run time'],
-      [hasAnyFinishes ? `$0F0${cachedTotalFormatted}` : '$888-']
-    )
+    const totalLabels = ['$BBBTotal run time', '$BBBPersonal best', '$BBBSum of best']
+    const totalValues = [
+      hasAnyFinishes ? `${cachedTotalFormatted}` : '$888-',
+      pbData && pbData.rawMs > 0 ? `${pbFormatted}` : '$888-',
+      sobData && sobData.rawMs > 0 ? `${sobFormatted}` : '$888-'
+    ]
+
+    // Manually construct the summary section to prevent Trakman's UI List from adding numbers
+    let totalContent = ''
+    for (let i = 0; i < 3; i++) {
+      // Small vertical offset for text centering
+      const yOffset = i * config.entryHeight
+      totalContent += `<label posn="1 -${yOffset + 0.3} 2" sizen="10 2" textsize="1" text="${totalLabels[i]}"/>`
+      totalContent += `<label posn="${(config.width || 14.675) - 0.5} -${yOffset + 0.3} 2" sizen="6 2" halign="right" textsize="1" text="${totalValues[i]}"/>`
+    }
+
+    // Add extra margin spacing to separate the list from the summary stats
+    const summaryStartY = dynamicListHeight + config.margin
+    const totalRunTimeHeight = (config.entryHeight * 3) + config.margin
   
     const xml = `<manialink id="${this.id}">
     <frame posn="${this.positionX} ${this.positionY} 1">
       <format textsize="1" textcolor="FFFF"/> 
         ${this.header.constructXml(config.title, config.icon, this.side)}
-        <quad posn="0 -${this.header.options.height + config.margin} 1" sizen="14.675 13" bgcolor="0006"/>
+        <quad posn="0 -${this.header.options.height + config.margin} 1" sizen="${config.width || 14.675} ${dynamicListHeight + totalRunTimeHeight + config.margin}" bgcolor="0006"/>
         <frame posn="0 -${this.header.options.height + config.margin} 1">
           ${content}
-          <frame posn="0 -${dynamicListHeight} 1">
-            ${totalContent}
+          
+          <frame posn="0 -${summaryStartY} 1">
+            <!-- Sleek visual divider line -->
+            <quad posn="0.5 0 2" sizen="${(config.width || 14.675) - 1} 0.1" bgcolor="8886"/>
+            
+            <!-- Summary rows shifted slightly down from the divider -->
+            <frame posn="0 -${config.margin * 1.5} 1">
+              ${totalContent}
+            </frame>
           </frame>
+
         </frame>
       </frame>
     </manialink>`

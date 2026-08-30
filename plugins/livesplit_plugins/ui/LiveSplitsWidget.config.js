@@ -8,6 +8,7 @@ export default {
   width: cfg.width,
   margin: cfg.margin,
   icon: icons.chartLocal,
+  buttonIcon: icons.mapList,
   // Custom metadata for the static header overlay
   title: "Livesplits",
 

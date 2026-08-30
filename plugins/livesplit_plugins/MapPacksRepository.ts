@@ -6,11 +6,16 @@ import { LiveSplitsRepository } from './LiveSplitsRepository.js'
 const mapIdsRepo = new MapIdsRepository() 
 const liveSplitsRepo = new LiveSplitsRepository()
 let mapPackId: number = -1
- 
+
 export class MapPacksRepository extends Repository {
 
   async insertIntoMapPacksTable(maps: tm.Map[]): Promise<void> {
     try {
+      if (!maps || maps.length === 0) {
+        Logger.warn('[MapPacks] Cannot insert an empty maps array.')
+        return
+      }
+
       const mapUids: string[] = maps.map((row) => row.id)
       const mapIdAndUidArray = await mapIdsRepo.get(mapUids)
 
@@ -26,6 +31,11 @@ export class MapPacksRepository extends Repository {
 
       // Preserve strict input order for mapIds
       const mapIds: number[] = mapUids.map((uid) => idMap.get(uid)!)
+
+      // Construct map_pack_name from first and last map names
+      const firstName = maps[0].name
+      const lastName = maps[maps.length - 1].name
+      const mapPackName = maps.length === 1 ? firstName : `${firstName} - ${lastName}`
 
       // Check both arrays with PostgreSQL strict equality '='
       const indexExistsQuery = `
@@ -47,7 +57,7 @@ export class MapPacksRepository extends Repository {
        
         await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids)
 
-        return //exit early (just sets liveplits mappack and nothing else)
+        return //exit early (just sets livesplits mappack and nothing else)
       }
       else {
         const indexQuery = `
@@ -64,11 +74,13 @@ export class MapPacksRepository extends Repository {
         mapPackId = newMapPackIndex
         Logger.info(`newMapPackIndex: ${newMapPackIndex}`)
       }
+      
       const query = `
-        INSERT INTO map_packs (map_pack_id, map_id_array, map_uid_array) 
-        ${this.getInsertValuesString(3, 1)};
+        INSERT INTO map_packs (map_pack_id, map_pack_name, map_id_array, map_uid_array) 
+        ${this.getInsertValuesString(4, 1)};
       `
-      const values: any[] = [mapPackId, mapIds, mapUids]
+      // Replaced the second 'mapPackId' with 'mapPackName'
+      const values: any[] = [mapPackId, mapPackName, mapIds, mapUids]
       await this.query(query, ...values)
       
       await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids)
@@ -133,7 +145,6 @@ export class MapPacksRepository extends Repository {
       }
 
       Logger.info(`Successfully finished queuing ${addedCount} map pack maps sequentially.`)
-      tm.sendMessage(`Map Pack: Successfully finished queuing ${addedCount} maps pack maps sequentially.`)
 
     } catch (error: any) {
       Logger.error("Failed to execute map pack auto-juke loader:", error?.message ?? error)

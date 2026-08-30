@@ -13,6 +13,11 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
   private readonly maxPackCount = 10_000
   private readonly grid: Grid
   private readonly packActionIds: number[] = []
+  
+  // Page navigation state tracking
+  private readonly playerQueries: { paginator: Paginator, login: string }[] = []
+  private readonly paginatorIdOffset: number = this.packAddId + this.maxPackCount
+  private nextPaginatorId = 0
 
   constructor() {
     super(MAPPACK_BASE_ID, config.icon, config.title, [])
@@ -64,6 +69,27 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
     })
   }
 
+  private getPaginator(login: string, packCount: number): Paginator {
+    const pageCount: number = Math.max(1, Math.ceil(packCount / (config.rows * config.columns)))
+    const playerQuery = this.playerQueries.find(a => a.login === login)
+    let paginator: Paginator
+
+    if (playerQuery !== undefined) {
+      paginator = playerQuery.paginator
+      paginator.setPageCount(pageCount)
+    } else {
+      paginator = new Paginator(this.openId + this.paginatorIdOffset + this.nextPaginatorId,
+        this.windowWidth, this.footerHeight, pageCount)
+      this.nextPaginatorId = (this.nextPaginatorId + 10) % 3000
+      this.playerQueries.push({ paginator, login })
+      paginator.onPageChange = (login: string, page: number): void => {
+        const currentPCount = Math.max(1, Math.ceil(mappacks.get().length / (config.rows * config.columns)))
+        this.displayToPlayer(login, { page, paginator }, `${page}/${currentPCount}`)
+      }
+    }
+    return paginator
+  }
+
   private getJukeboxIdentifiers(): Set<string> {
     const set = new Set<string>()
     const juked = tm.jukebox.juked ?? []
@@ -85,8 +111,10 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
     const pageCount = Math.max(1, Math.ceil(packs.length / (config.rows * config.columns)))
 
     for (const login of players) {
-      const page: number = this.paginator.getPageByLogin(login) ?? 1
-      this.displayToPlayer(login, { page, paginator: this.paginator }, `${page}/${pageCount}`)
+      const obj = this.playerQueries.find(a => a.login === login)
+      const paginator = obj?.paginator ?? this.paginator
+      const page: number = paginator.getPageByLogin(login) ?? 1
+      this.displayToPlayer(login, { page, paginator }, `${page}/${pageCount}`)
     }
   }
 
@@ -95,21 +123,26 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
     const pageCount = Math.max(1, Math.ceil(packs.length / (config.rows * config.columns)))
     page = Math.min(pageCount, Math.max(1, page))
 
-    this.paginator.setPageCount(pageCount)
-    this.paginator.setPageForLogin(login, page)
-    this.displayToPlayer(login, { page, paginator: this.paginator }, `${page}/${pageCount}`)
+    const paginator = this.getPaginator(login, packs.length)
+    paginator.setPageForLogin(login, page)
+    this.displayToPlayer(login, { page, paginator }, `${page}/${pageCount}`)
   }
 
   protected async onOpen(info: tm.ManialinkClickInfo): Promise<void> {
     const packs = await mappacks.fetch()
-    const page: number = this.paginator.getPageByLogin(info.login) || 1
     const pageCount: number = Math.max(1, Math.ceil(packs.length / (config.rows * config.columns)))
+    const paginator = this.getPaginator(info.login, packs.length)
+    const page: number = paginator.getPageByLogin(info.login) || 1
 
-    this.paginator.setPageCount(pageCount)
-    this.displayToPlayer(info.login, { page, paginator: this.paginator }, `${page}/${pageCount}`)
+    this.displayToPlayer(info.login, { page, paginator }, `${page}/${pageCount}`)
   }
 
   protected onClose(info: tm.ManialinkClickInfo): void {
+    const index: number = this.playerQueries.findIndex(a => a.login === info.login)
+    if (index !== -1) {
+      this.playerQueries[index].paginator.destroy()
+      this.playerQueries.splice(index, 1)
+    }
     this.hideToPlayer(info.login)
   }
 

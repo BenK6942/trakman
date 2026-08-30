@@ -452,8 +452,9 @@ export default class LiveSplitsWidget extends StaticComponent {
 
     const dynamicListHeight = config.entryHeight * renderCount
     const listUi = new List(renderCount, config.width, dynamicListHeight, config.columnProportions)
-    const content = listUi.constructXml(mapNames, finishTimes)
-
+    let content = listUi.constructXml(mapNames, finishTimes)
+        content = content.replace(/text="\$s\d+"/g, 'text=""')
+        
     const totalData = this.totalRunTimeCache.get(login)
     const pbData = this.pbTotalCache.get(login)
     const sobData = this.sumOfBestCache.get(login)

@@ -1,10 +1,15 @@
 export { }
 
 const queries = [
+  `CREATE OR REPLACE FUNCTION generate_array_md5(arr anyarray) 
+    RETURNS text 
+    LANGUAGE sql IMMUTABLE STRICT AS $$
+        SELECT md5(arr::text);
+    $$;`,
   `CREATE TABLE IF NOT EXISTS livesplits(
-	  map_pack_id INT4,
+    map_pack_id INT4,
     map_id INT4 NOT NULL, 
-	  map_uid varchar(50),
+    map_uid varchar(50),
     player_id INT4 NOT NULL,
     player_login varchar(50),
     finish_time INT4,    
@@ -13,12 +18,14 @@ const queries = [
   );`,
   `CREATE TABLE IF NOT EXISTS map_packs(
     map_pack_id INT4 NOT NULL UNIQUE,
-	  map_pack_name varchar(100),
-	  map_id_array INT4[] NOT NULL UNIQUE,
-	  map_uid_array TEXT[] UNIQUE
+    map_pack_name varchar(515),
+    map_id_array INT4[] NOT NULL,
+    map_uid_array TEXT[], 
+    map_id_hash TEXT GENERATED ALWAYS AS (generate_array_md5(map_id_array)) STORED UNIQUE,
+    map_uid_hash TEXT GENERATED ALWAYS AS (generate_array_md5(map_uid_array)) STORED UNIQUE
   );`,
   `CREATE TABLE IF NOT EXISTS map_pack_pb_splits(
-	  map_pack_id INT4 NOT NULL, 
+    map_pack_id INT4 NOT NULL, 
     map_id INT4 NOT NULL, 
     map_uid varchar(50), 
     player_id INT4 NOT NULL, 
@@ -26,14 +33,14 @@ const queries = [
     finish_time INT4,
     PRIMARY KEY(map_pack_id, map_id, player_id)
   );`,
-  `CREATE OR REPLACE VIEW v_pb_splits_total AS
+  `CREATE OR REPLACE VIEW v_pb_splits_total AS (
     SELECT 
       map_pack_id,  
       player_id, 
       player_login, 
       sum(finish_time) as pb_total_run_time
     FROM map_pack_pb_splits
-	  GROUP BY map_pack_id, player_id, player_login
+    GROUP BY map_pack_id, player_id, player_login
   );`,
   `CREATE OR REPLACE VIEW v_pb_cumulative_splits AS
     WITH ordered_maps AS (
@@ -88,4 +95,3 @@ tm.addListener("Startup", async () => {
   await tm.db.query(`UPDATE livesplits SET finish_time = NULL;`); 
   await tm.db.query(`UPDATE livesplits SET map_pack_id = NULL;`);
 });
-	

@@ -7,6 +7,9 @@ import config from './MapPackWidget.config.js'
 const MAPPACK_BASE_ID = 8_000_000
 
 export default class MappackList extends PopupWindow<{ page: number, paginator: Paginator }> {
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms))
+  }
 
   private readonly paginator: Paginator
   private readonly packAddId: number = 1_000
@@ -19,6 +22,10 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
   private readonly paginatorIdOffset: number = this.packAddId + this.maxPackCount
   private nextPaginatorId = 0
 
+  // Track processing state and debounce listener timeouts
+  private isProcessingPack: boolean = false
+  private jukeboxTimeout: NodeJS.Timeout | null = null
+
   constructor() {
     super(MAPPACK_BASE_ID, config.icon, config.title, [])
 
@@ -28,8 +35,13 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
       params: [{ name: 'mapPackId', type: 'int' }],
       callback: async (info: tm.MessageInfo, mapPackId: number): Promise<void> => {
         const mapPacksRepo = new MapPacksRepository()
-        await mapPacksRepo.addMapPackToJukebox(info.login, mapPackId)
-        this.reRender()
+        this.isProcessingPack = true
+        try {
+          await mapPacksRepo.addMapPackToJukebox(info.login, mapPackId)
+        } finally {
+          this.isProcessingPack = false
+          this.reRender()
+        }
       },
       privilege: 1
     })
@@ -63,9 +75,18 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
       },
       privilege: config.commands.list.privilege
     })
-
+ 
     tm.addListener('JukeboxChanged', (): void => {
-      this.reRender()
+      if (this.isProcessingPack) return
+
+      if (this.jukeboxTimeout !== null) {
+        clearTimeout(this.jukeboxTimeout)
+      }
+
+      this.jukeboxTimeout = setTimeout(() => {
+        this.reRender()
+        this.jukeboxTimeout = null
+      }, 300)
     })
   }
 
@@ -215,6 +236,11 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
   }
 
   private async handlePackClick(packId: number, login: string, nickname: string): Promise<void> {
+    if (this.isProcessingPack) return
+
+    if (this.jukeboxTimeout !== null) {
+      clearTimeout(this.jukeboxTimeout)
+    }
     const pack = mappacks.get().find(a => a.id === packId)
     if (!pack || !pack.mapUids || pack.mapUids.length === 0) return
 
@@ -223,29 +249,40 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
 
     const isAllJuked = packUids.length > 0 && packUids.every(uid => jukedSet.has(uid))
 
-    if (isAllJuked) {
-      for (const uid of packUids) {
-        await tm.jukebox.remove(uid, { login, nickname })
-      } 
-    } else {
-      const mapPacksRepo = new MapPacksRepository()
-      await mapPacksRepo.addMapPackToJukebox(login, packId) 
-      const command = tm.commands.list.find(c => c.aliases.includes('initializePlaylist') || c.aliases.includes('ip'))
-        if (command) {
-            const player = tm.players.get(login)
-            if (player) {
-                const commandContext = {
-                ...player,
-                text: '/ip',
-                date: new Date(),
-                aliasUsed: 'ip'
-                } 
-            void command.callback(commandContext, [])
-            }
-        }
-    }
+    // Set flag to suppress individual JukeboxChanged re-renders during batch operation
+    this.isProcessingPack = true
 
-    this.reRender()
+    try {
+      if (isAllJuked) {
+        tm.sendMessage(`$0F0[Map Packs] $FFFRemoving all map pack maps from the jukebox, please wait for this to finish...`)
+        for (const uid of packUids) {
+          await this.sleep(75)
+          await tm.jukebox.remove(uid, { login, nickname })
+        } 
+      } else {
+        const mapPacksRepo = new MapPacksRepository()
+        await mapPacksRepo.addMapPackToJukebox(login, packId) 
+        const command = tm.commands.list.find(c => c.aliases.includes('initializePlaylist') || c.aliases.includes('ip'))
+        if (command) {
+          const player = tm.players.get(login)
+          if (player) {
+            const commandContext = {
+              ...player,
+              text: '/ip',
+              date: new Date(),
+              aliasUsed: 'ip'
+            } 
+            void command.callback(commandContext, [])
+          }
+        }
+      }
+    } finally {
+      this.isProcessingPack = false
+      if (isAllJuked){
+        tm.sendMessage(`$0F0[Map Packs] $FFFSuccessfully finished removing all map pack maps from the jukebox.`)
+      }
+      this.reRender()
+    }
   }
 
   private getActionId(packId: number): number {

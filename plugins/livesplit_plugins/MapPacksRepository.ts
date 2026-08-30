@@ -96,6 +96,9 @@ export class MapPacksRepository extends Repository {
   
   async addMapPackToJukebox(login: string, mapPackId: number): Promise<void> {
     try {
+      
+      tm.sendMessage(`$0F0[Map Packs] $FFFJuking all maps in the map pack, please wait for this to finish...`)
+
       const query = `
         SELECT map_uid_array 
         FROM map_packs 
@@ -143,7 +146,7 @@ export class MapPacksRepository extends Repository {
           await this.sleep(500)
         }
       }
-
+      tm.sendMessage(`$0F0[Map Packs] $FFFSuccessfully finished queuing ${addedCount} map pack maps sequentially.`)
       Logger.info(`Successfully finished queuing ${addedCount} map pack maps sequentially.`)
 
     } catch (error: any) {

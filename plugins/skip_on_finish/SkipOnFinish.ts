@@ -1,12 +1,12 @@
-import config from './Config.js'
-
+import config from './Config.js' 
 /**
  * Upon finish of map, skips to next challenge
  * @author benk
  */
 
 if (config.isEnabled) {
-    tm.addListener('PlayerFinish', (f) => {
-        tm.client.call('NextChallenge');
-    });
-}
+    tm.addListener('TrackMania.PlayerFinish', async ([, , time_param]) => {
+        if (time_param >0)
+            tm.client.call('NextChallenge') 
+    })
+} 

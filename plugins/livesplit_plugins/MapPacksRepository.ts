@@ -9,6 +9,51 @@ let mapPackId: number = -1
 
 export class MapPacksRepository extends Repository {
 
+  async updateLiveSplits(maps: tm.Map[]): Promise<void> {
+    const mapUids: string[] = maps.map((row) => row.id)
+    const mapIdAndUidArray = await mapIdsRepo.get(mapUids)
+
+    if (!mapIdAndUidArray || mapIdAndUidArray.length !== mapUids.length) {
+      Logger.error(`[MapPacks] Failed to look up database IDs for Maps: ${mapUids}`)
+      return
+    }
+
+    // Map returned database rows into a lookup dictionary
+    const idMap = new Map<string, number>(
+      mapIdAndUidArray.map((row) => [row.uid, row.id])
+    )
+
+    // Preserve strict input order for mapIds
+    const mapIds: number[] = mapUids.map((uid) => idMap.get(uid)!)
+
+    // Construct map_pack_name from first and last map names
+    const firstName = maps[0].name
+    const lastName = maps[maps.length - 1].name
+    const mapPackName = maps.length === 1 ? firstName : `${firstName} - ${lastName}`
+ 
+    const indexExistsQuery = `
+      SELECT map_pack_id 
+      FROM map_packs 
+      WHERE map_id_array = $1 AND map_uid_array = $2;
+    `
+      
+    const indexExists = await this.query(indexExistsQuery, mapIds, mapUids)
+     
+    const firstRow = indexExists?.[0]
+    const existingMapPackIndex = (firstRow?.map_pack_id !== null && firstRow?.map_pack_id !== undefined) 
+        ? Number(firstRow.map_pack_id) 
+        : -1
+      
+    if (existingMapPackIndex != -1){ 
+      mapPackId = existingMapPackIndex
+      Logger.info(`existingMapPackIndex: ${mapPackId}`)
+       
+      await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids)
+
+      return 
+    }
+  }
+  
   async insertIntoMapPacksTable(maps: tm.Map[]): Promise<void> {
     try {
       if (!maps || maps.length === 0) {
@@ -36,8 +81,7 @@ export class MapPacksRepository extends Repository {
       const firstName = maps[0].name
       const lastName = maps[maps.length - 1].name
       const mapPackName = maps.length === 1 ? firstName : `${firstName} - ${lastName}`
-
-      // Check both arrays with PostgreSQL strict equality '='
+ 
       const indexExistsQuery = `
         SELECT map_pack_id 
         FROM map_packs 
@@ -57,7 +101,7 @@ export class MapPacksRepository extends Repository {
        
         await liveSplitsRepo.createNewRowsForLoginOrUpdateMapPack(mapPackId, mapIds, mapUids)
 
-        return //exit early (just sets livesplits mappack and nothing else)
+        return 
       }
       else {
         const indexQuery = `
@@ -78,8 +122,7 @@ export class MapPacksRepository extends Repository {
       const query = `
         INSERT INTO map_packs (map_pack_id, map_pack_name, map_id_array, map_uid_array) 
         ${this.getInsertValuesString(4, 1)};
-      `
-      // Replaced the second 'mapPackId' with 'mapPackName'
+      ` 
       const values: any[] = [mapPackId, mapPackName, mapIds, mapUids]
       await this.query(query, ...values)
       

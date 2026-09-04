@@ -37,17 +37,18 @@ export default {
     "MapWidget",
     "PreviousAndBest",
     "TMXRanking",
-    "TimerWidget",
-    "RoundScore",
-    "RoundsPointsRanking",
-    "DonationPanel"
+    "TimerWidget", 
+    "LiveSplitsWidget"
+    // "RoundScore",
+    // "RoundsPointsRanking",
+    // "DonationPanel"
   ],
   roundsLeftSideOrder: [
     "ButtonsWidget",
     "RankWidget",
     "KarmaWidget",
     "DediRanking",
-    "LocalRanking",
+    // "LocalRanking",
     "AdminPanel"
   ],
   roundsOtherComponents: ['BestCps', 'BestFinishes', 'CpCounter'],

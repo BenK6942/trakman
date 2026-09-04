@@ -36,12 +36,14 @@ export default class LiveSplitsWidget extends StaticComponent {
   private readonly pbTotalCache: Map<string, { rawMs: number; formatted: string }> = new Map()
   private readonly sumOfBestCache: Map<string, { rawMs: number; formatted: string }> = new Map()
 
+  // PER-PLAYER CACHE: Prevents state overwrites when querying map pack names for multiple players
+  private readonly mapPackNameCache: Map<string, string> = new Map()
+
   // Maintain a persistent layout array that never drops or alters indexes during the match
   private frozenPlaylist: tm.Map[] = []
   private currentPlaylistIndex: number = 0
   private isPlaylistInitialized: boolean = false
-  private currentMapPackId: number = 0
-  private mapPackName: string = 'No Map Pack Juked'
+  private manualCommandRunIP: boolean = false
 
   private hasRequeuedLastMap: boolean = false
   private mapPackCompletion: boolean = false
@@ -72,53 +74,48 @@ export default class LiveSplitsWidget extends StaticComponent {
 
     // Initial hydration for any players already on the server when the plugin starts/reloads
     for (const player of tm.players.list) {
-      this.fetchAndFreezePBs(player.login)
-      this.initializeFromDatabase(player.login)
-    }
+      void this.fetchAndFreezePBs(player.login)
+      void this.initializeFromDatabase(player.login)
+    } 
+    
+    this.renderOnEvent('TrackMania.PlayerFinish', ([, login_param, time_param]) => { 
+      if (time_param > 0) {
+        void (async () => {
+          // 1. Save live finish time to database
+          await this.initializeFromDatabase(login_param)
 
-    this.renderOnEvent('PlayerFinish', (info: tm.FinishInfo) => { 
-      setTimeout(async () => { 
-        const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
-        if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
-          await this.checkPlaylistCompletion(info.login)
-        }
-
-        await this.initializeFromDatabase(info.login)
-      }, 1000)
+          const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
+          if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
+            // 2. Save PB to DB if it's a new best, but DO NOT refresh cumulativePbCache yet!
+            await this.checkPlaylistCompletion(login_param)
+            
+            // 3. Re-render UI displaying the difference against the PREVIOUS baseline
+            this.displayToPlayer(login_param)
+          }
+        })()
+      }
     })
 
+    // Player join hook
     this.renderOnEvent('PlayerJoin', (info: tm.JoinInfo) => {
-      this.fetchAndFreezePBs(info.login)
-      this.initializeFromDatabase(info.login)
+      void this.fetchAndFreezePBs(info.login)
+      void this.initializeFromDatabase(info.login)
     })
 
+    // Register BeginMap ONCE in constructor without returning a Promise
+    this.renderOnEvent('BeginMap', () => {
+      this.handleBeginMap().catch((err: Error) => {
+        Logger.error(`Error in handleBeginMap: ${err.message}`)
+      })
+    })
+
+    // Register the /ip command
     tm.commands.add({
       aliases: [`ip`, `initializePlaylist`],
       help: `LiveSpitsWidget: Initialize playlist.`, 
-      callback: async (info: tm.MessageInfo) => {
-        this.isPlaylistInitialized = false 
-        this.mapPackCompletion = false
-        this.renderOnEvent('BeginMap', () => {
-          if (this.mapPackCompletion) {
-            setTimeout(async () => {
-              await this.initializeFromDatabase(info.login)
-            }, 1000)
-            return
-          }
-          if (!this.isPlaylistInitialized) {
-            this.initializePlaylist()          
-            setTimeout(async () => {
-              await this.fetchAndCacheCumulativePBsForPlayer(info.login)
-              await this.initializeFromDatabase(info.login)
-            }, 1000)
-          } else {
-            this.updateActivePlaylistPointer()
-          }
-          this.display()
-        })
-        setTimeout(async () => {
-          await this.initializeFromDatabase(info.login)
-        }, 1000)
+      params: [{ name: 'notManualCommandRun', type: 'boolean', optional: true}],
+      callback: async (info: tm.MessageInfo, notManualCommandRun?: boolean) => {
+        await this.handleInitializePlaylistCommand(!notManualCommandRun)
       },
       privilege: 1
     }) 
@@ -129,7 +126,6 @@ export default class LiveSplitsWidget extends StaticComponent {
   }
 
   getHeight(): number {
-    // Height adjusted to fit Header + Map Pack Name + Splits + Summary + Gap + Button
     return config.entryHeight * (config.entries + 5.25) + StaticHeader.raceHeight + (config.margin * 4)
   }
 
@@ -137,13 +133,69 @@ export default class LiveSplitsWidget extends StaticComponent {
     return timeStr.replace(/^(\$[A-Fa-f0-9]{3})?([+-])?0:0?/i, '$1$2')
   }
 
-  private initializePlaylist(): void {
+  private async handleInitializePlaylistCommand(isManual: boolean): Promise<void> {
+    if (isManual) {
+      this.manualCommandRunIP = true
+    } else {
+      this.manualCommandRunIP = false
+    }
+    this.isPlaylistInitialized = false
+    this.mapPackCompletion = false
+
+    for (const player of tm.players.list) {
+      await this.initializeFromDatabase(player.login)
+    }
+  }
+
+  private async handleBeginMap(): Promise<void> {
+    // If a run was just completed on the previous map, reset completion status for the new map
+    if (this.mapPackCompletion) {
+      this.mapPackCompletion = false
+      for (const player of tm.players.list) { 
+        await this.initializeFromDatabase(player.login)
+      }
+      this.display()
+      return
+    }
+  
+    // Force re-initialization if flag is uninitialized OR current map isn't in frozen playlist
+    if (!this.isPlaylistInitialized) {
+      await this.initializePlaylist()
+      for (const player of tm.players.list) {
+        await this.fetchAndCacheCumulativePBsForPlayer(player.login)
+        await this.initializeFromDatabase(player.login)
+      }
+    } else {
+      this.updateActivePlaylistPointer()
+      for (const player of tm.players.list) {
+        await this.initializeFromDatabase(player.login)
+      }
+    }
+
+    const isMapPackActive = await this.checkIfMapPackActive()
+    if (!isMapPackActive) {
+      this.frozenPlaylist = []
+      this.isPlaylistInitialized = false
+      this.currentPlaylistIndex = 0
+
+      for (const player of tm.players.list) {
+        this.liveSessionCache.clear()
+        this.cumulativePbCache.clear()
+        await this.initializeFromDatabase(player.login)
+      }
+    } 
+    
+    this.display()
+  }
+
+  private async initializePlaylist(): Promise<void> {
     this.frozenPlaylist = []
     this.currentPlaylistIndex = 0
     this.hasRequeuedLastMap = false
-    this.mapPackName = 'Custom Playlist'
+    this.mapPackNameCache.clear()
     
-    tm.db.query(`UPDATE livesplits SET map_pack_id = NULL,finish_time = NULL;`)
+    // Clear old active state before loading new playlist
+    await tm.db.query(`UPDATE livesplits SET map_pack_id = NULL, finish_time = NULL;`)
 
     if (tm.maps.current) {
       this.frozenPlaylist.push(tm.maps.current)
@@ -152,15 +204,21 @@ export default class LiveSplitsWidget extends StaticComponent {
     for (const entry of tm.jukebox.juked) {
       this.frozenPlaylist.push(entry.map)
     }
+  
+    const mapPacksRepo = new MapPacksRepository()
+    if (this.manualCommandRunIP){
+      try { 
+        await mapPacksRepo.insertIntoMapPacksTable(this.frozenPlaylist)
+      } catch (error) {
+        Logger.error(`Failed to insert record: ${(error as Error).message}`)
+      } 
+    }
+    else {
+      await mapPacksRepo.updateLiveSplits(this.frozenPlaylist)
+    }
 
     this.isPlaylistInitialized = true
-
-    const mapPacksRepo = new MapPacksRepository()
-    try { 
-      mapPacksRepo.insertIntoMapPacksTable(this.frozenPlaylist)
-    } catch (error) {
-      Logger.error(`Failed to insert record: ${(error as Error).message}`)
-    } 
+    this.manualCommandRunIP = false
   }
   
   private async fetchAndCacheCumulativePBsForPlayer(login: string): Promise<void> {
@@ -242,7 +300,7 @@ export default class LiveSplitsWidget extends StaticComponent {
         this.requeueLastMapOnce(tm.maps.current)
       }
     } else {
-      this.initializePlaylist()
+      void this.initializePlaylist()
     }
   }
 
@@ -265,6 +323,23 @@ export default class LiveSplitsWidget extends StaticComponent {
     }
   }
 
+  async checkIfMapPackActive(): Promise<boolean> {
+    const query = `
+      SELECT 1 
+      FROM livesplits 
+      WHERE map_pack_id IS NOT NULL
+      LIMIT 1;`
+  
+    const res = await tm.db.query(query)
+
+    if (res instanceof Error) {
+      tm.log.error('Database query failed:', res.message)
+      return false
+    }
+
+    return Array.isArray(res) && res.length > 0
+  }
+  
   private async checkPlaylistCompletion(login: string): Promise<void> {
     const playerRepo = new PlayerRepository()
     const playerId = await playerRepo.getId(login)
@@ -341,7 +416,9 @@ export default class LiveSplitsWidget extends StaticComponent {
     ])
 
     if (!(packNameResult instanceof Error) && packNameResult.length > 0 && packNameResult[0].map_pack_name) {
-      this.mapPackName = String(packNameResult[0].map_pack_name)
+      this.mapPackNameCache.set(login, String(packNameResult[0].map_pack_name))
+    } else {
+      this.mapPackNameCache.set(login, 'No Map Pack Juked')
     }
 
     if (!(splitResult instanceof Error)) {
@@ -403,72 +480,70 @@ export default class LiveSplitsWidget extends StaticComponent {
       startIndex = Math.max(0, this.frozenPlaylist.length - MAX_VISIBLE_ENTRIES)
     }
 
-const mapOrderNumbers: string[] = []
+    const mapOrderNumbers: string[] = []
 
-for (let i = 0; i < renderCount; i++) {
-  const absoluteMapIndex = startIndex + i
-  const map = this.frozenPlaylist[absoluteMapIndex]
-  
-  if (map !== undefined) {
-    // Look up exact index of this map in the frozen playlist array
-    const actualPlaylistIndex = this.frozenPlaylist.findIndex(m => m.id === map.id)
-    const mapOrder = actualPlaylistIndex !== -1 ? actualPlaylistIndex + 1 : absoluteMapIndex + 1
-    
-    mapOrderNumbers.push(mapOrder.toString())
-
-    const isCurrent = absoluteMapIndex === this.currentPlaylistIndex
-    const isFinished = absoluteMapIndex < this.currentPlaylistIndex
-    
-    let displayName = map.name
-    if (isCurrent) {
-      displayName = `$F00» $FFF${map.name}`
-    } else if (isFinished) {
-      displayName = `$777${tm.utils.strip(map.name)}`
-    }
+    for (let i = 0; i < renderCount; i++) {
+      const absoluteMapIndex = startIndex + i
+      const map = this.frozenPlaylist[absoluteMapIndex]
       
-    let diffDisplay = '       '
-    
-    const mapCumulativeRunMs = this.getCumulativeRunTimeUpToIndex(login, absoluteMapIndex)
-    const splitDiff = this.getCumulativeDelta(login, map.id, mapCumulativeRunMs)?.formatted
-    
-    if (splitDiff !== undefined) { 
-      diffDisplay = splitDiff
-    }
-    
-    const cachedRecord = this.liveSessionCache.get(`${login}_${map.id}`)
-    const frozenPbMs = this.frozenPBCache.get(`${login}_${map.id}`)
+      if (map !== undefined) {
+        const actualPlaylistIndex = this.frozenPlaylist.findIndex(m => m.id === map.id)
+        const mapOrder = actualPlaylistIndex !== -1 ? actualPlaylistIndex + 1 : absoluteMapIndex + 1
+        
+        mapOrderNumbers.push(mapOrder.toString())
 
-    if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
-      const diff = cachedRecord.rawTime - frozenPbMs
-      if (diff < 0) {
-        diffDisplay = `$EB0${tm.utils.strip(diffDisplay, true)}`
+        const isCurrent = absoluteMapIndex === this.currentPlaylistIndex
+        const isFinished = absoluteMapIndex < this.currentPlaylistIndex
+        
+        let displayName = map.name
+        if (isCurrent) {
+          displayName = `$F00» $FFF${map.name}`
+        } else if (isFinished) {
+          displayName = `$777${tm.utils.strip(map.name)}`
+        }
+          
+        let diffDisplay = '       '
+        
+        const mapCumulativeRunMs = this.getCumulativeRunTimeUpToIndex(login, absoluteMapIndex)
+        const splitDiff = this.getCumulativeDelta(login, map.id, mapCumulativeRunMs)?.formatted
+        
+        if (splitDiff !== undefined) { 
+          diffDisplay = splitDiff
+        }
+        
+        const cachedRecord = this.liveSessionCache.get(`${login}_${map.id}`)
+        const frozenPbMs = this.frozenPBCache.get(`${login}_${map.id}`)
+
+        if (cachedRecord?.rawTime !== undefined && frozenPbMs !== undefined) {
+          const diff = cachedRecord.rawTime - frozenPbMs
+          if (diff < 0) {
+            diffDisplay = `$EB0${tm.utils.strip(diffDisplay, true)}`
+          }
+        }
+          
+        mapNames.push(`${diffDisplay}  ${displayName}`)
+
+        const displayTime = cachedRecord 
+          ? (isCurrent ? `${cachedRecord.time}` : cachedRecord.time) 
+          : '-'
+        
+        finishTimes.push(displayTime)
+      } else {
+        mapOrderNumbers.push('')
+        mapNames.push('      $888-')
+        finishTimes.push(' ')
       }
     }
-      
-    mapNames.push(`${diffDisplay}  ${displayName}`)
 
-    const displayTime = cachedRecord 
-      ? (isCurrent ? `${cachedRecord.time}` : cachedRecord.time) 
-      : '-'
-    
-    finishTimes.push(displayTime)
-  } else {
-    mapOrderNumbers.push('')
-    mapNames.push('      $888-')
-    finishTimes.push(' ')
-  }
-}
+    const dynamicListHeight = config.entryHeight * renderCount
+    const listUi = new List(renderCount, config.width, dynamicListHeight, config.columnProportions)
+    let content = listUi.constructXml(mapNames, finishTimes)
 
-const dynamicListHeight = config.entryHeight * renderCount
-const listUi = new List(renderCount, config.width, dynamicListHeight, config.columnProportions)
-let content = listUi.constructXml(mapNames, finishTimes)
-
-// Replace the default 1..N numbers generated by List with the calculated playlist order
-let itemIdx = 0
-content = content.replace(/text="\$s\d+"/g, () => {
-  const realOrder = mapOrderNumbers[itemIdx++] ?? ''
-  return `text="$s${realOrder}"`
-})
+    let itemIdx = 0
+    content = content.replace(/text="\$s\d+"/g, () => {
+      const realOrder = mapOrderNumbers[itemIdx++] ?? ''
+      return `text="$s${realOrder}"`
+    })
 
     const totalData = this.totalRunTimeCache.get(login)
     const pbData = this.pbTotalCache.get(login)
@@ -500,8 +575,10 @@ content = content.replace(/text="\$s\d+"/g, () => {
     const iconSize = buttonRowHeight - 0.5
     const buttonGap = config.margin * 1.5
 
-    // Map Pack Name Row XML (Top of LiveSplits container)
-    const packNameText = tm.utils.safeString(tm.utils.strip(this.mapPackName, false))
+    // Fetch player-specific map pack name
+    const playerMapPackName = this.mapPackNameCache.get(login) ?? 'No Map Pack Juked'
+    const packNameText = tm.utils.safeString(tm.utils.strip(playerMapPackName, false))
+    
     const mapPackNameRowXml = `
       <frame posn="0 0 2">
         <quad posn="0 0 1" sizen="${widgetWidth} ${packNameRowHeight}" bgcolor="0004"/>
@@ -521,7 +598,7 @@ content = content.replace(/text="\$s\d+"/g, () => {
     const totalRunTimeHeight = (config.entryHeight * 3) + config.margin
     const mainContainerHeight = packNameRowHeight + dynamicListHeight + totalRunTimeHeight + (config.margin * 2)
 
-    // Embedded Map Packs Button Row XML (At bottom separated by buttonGap)
+    // Embedded Map Packs Button Row XML
     const buttonStartY = mainContainerHeight + buttonGap
     const buttonRowXml = `
       <frame posn="0 -${buttonStartY} 2">
@@ -558,7 +635,7 @@ content = content.replace(/text="\$s\d+"/g, () => {
             </frame>
           </frame>
 
-          <!-- Embedded Map Packs Button (Separated at bottom) -->
+          <!-- Embedded Map Packs Button -->
           ${buttonRowXml}
 
         </frame>

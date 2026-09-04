@@ -268,7 +268,7 @@ export default class MappackList extends PopupWindow<{ page: number, paginator: 
           if (player) {
             const commandContext = {
               ...player,
-              text: '/ip',
+              text: '/ip true',
               date: new Date(),
               aliasUsed: 'ip'
             } 

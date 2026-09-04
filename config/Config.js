@@ -70,7 +70,7 @@ export default {
   splitBy: 2000,
   /** Whether the maplist gets reloaded on Match Settings updates.
    *  Enable this if you use external tools to modify the Match Settings */
-  updateMatchSettingsOnChange: false,
+  updateMatchSettingsOnChange: true,
   /** Point system for rounds and cup gamemodes */
   roundsModePointSystem: [33, 29, 27, 25, 23, 21, 19, 17, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
   /** Default time limit in TimeAttack mode (in milliseconds) */

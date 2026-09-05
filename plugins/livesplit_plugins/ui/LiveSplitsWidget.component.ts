@@ -71,8 +71,7 @@ export default class LiveSplitsWidget extends StaticComponent {
         void command.callback(commandContext, [])
       }
     })
-
-    // Initial hydration for any players already on the server when the plugin starts/reloads
+ 
     for (const player of tm.players.list) {
       void this.fetchAndFreezePBs(player.login)
       void this.initializeFromDatabase(player.login)
@@ -81,20 +80,17 @@ export default class LiveSplitsWidget extends StaticComponent {
     this.renderOnEvent('TrackMania.PlayerFinish', ([, login_param, time_param]) => { 
       if (time_param > 0) {
         setTimeout(async () => { 
-          void (async () => {
-            // 1. Save live finish time to database
+          void (async () => { 
             await this.initializeFromDatabase(login_param)
 
             const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
-            if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
-              // 2. Save PB to DB if it's a new best, but DO NOT refresh cumulativePbCache yet!
+            if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) { 
               await this.checkPlaylistCompletion(login_param)
-              
-              // 3. Re-render UI displaying the difference against the PREVIOUS baseline
+               
               this.displayToPlayer(login_param)
             }
           })()
-        }, 3000)
+        }, 1000)
       }
     })
 
@@ -103,12 +99,13 @@ export default class LiveSplitsWidget extends StaticComponent {
       void this.fetchAndFreezePBs(info.login)
       void this.initializeFromDatabase(info.login)
     })
-
-    // Register BeginMap ONCE in constructor without returning a Promise
+ 
     this.renderOnEvent('BeginMap', () => {
-      this.handleBeginMap().catch((err: Error) => {
-        Logger.error(`Error in handleBeginMap: ${err.message}`)
-      })
+      setTimeout(async () => { 
+        this.handleBeginMap().catch((err: Error) => {
+          Logger.error(`Error in handleBeginMap: ${err.message}`)
+        })
+      }, 3000)
     })
 
     // Register the /ip command
@@ -150,15 +147,6 @@ export default class LiveSplitsWidget extends StaticComponent {
   }
 
   private async handleBeginMap(): Promise<void> {
-    // If a run was just completed on the previous map, reset completion status for the new map
-    if (this.mapPackCompletion) {
-      this.mapPackCompletion = false
-      for (const player of tm.players.list) { 
-        await this.initializeFromDatabase(player.login)
-      }
-      this.display()
-      return
-    }
   
     // Force re-initialization if flag is uninitialized OR current map isn't in frozen playlist
     if (!this.isPlaylistInitialized) {

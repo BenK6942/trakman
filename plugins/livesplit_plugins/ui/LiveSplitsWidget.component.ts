@@ -80,19 +80,21 @@ export default class LiveSplitsWidget extends StaticComponent {
     
     this.renderOnEvent('TrackMania.PlayerFinish', ([, login_param, time_param]) => { 
       if (time_param > 0) {
-        void (async () => {
-          // 1. Save live finish time to database
-          await this.initializeFromDatabase(login_param)
+        setTimeout(async () => { 
+          void (async () => {
+            // 1. Save live finish time to database
+            await this.initializeFromDatabase(login_param)
 
-          const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
-          if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
-            // 2. Save PB to DB if it's a new best, but DO NOT refresh cumulativePbCache yet!
-            await this.checkPlaylistCompletion(login_param)
-            
-            // 3. Re-render UI displaying the difference against the PREVIOUS baseline
-            this.displayToPlayer(login_param)
-          }
-        })()
+            const isLastMap = this.currentPlaylistIndex === this.frozenPlaylist.length - 1
+            if (!this.mapPackCompletion && isLastMap && this.frozenPlaylist.length > 0) {
+              // 2. Save PB to DB if it's a new best, but DO NOT refresh cumulativePbCache yet!
+              await this.checkPlaylistCompletion(login_param)
+              
+              // 3. Re-render UI displaying the difference against the PREVIOUS baseline
+              this.displayToPlayer(login_param)
+            }
+          })()
+        }, 3000)
       }
     })
 
